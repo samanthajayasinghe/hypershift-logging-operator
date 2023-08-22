@@ -10,4 +10,14 @@ plugins:
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: hypershift-logging-operator
 repo: github.com/openshift/hypershift-logging-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: managed.openshift.io
+  group: hypershiftlogforwarder.managed.openshift.io
+  kind: HypershiftLogForwarder
+  path: github.com/openshift/hypershift-logging-operator/api/v1
+  version: v1
 version: "3"
