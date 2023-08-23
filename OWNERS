@@ -1,0 +1,15 @@
+reviewers:
+  - wanghaoran1988
+  - bmeng
+  - feichashao
+  - MitaliBhalla
+  - Tafhim
+  - hectorakemp
+  - samanthajayasinghe
+approvers:
+  - wanghaoran1988
+  - feichashao
+  - bmeng
+  - samanthajayasinghe #temp
+  - srep-team-leads
+  - sre-architects
