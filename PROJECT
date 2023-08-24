@@ -16,8 +16,17 @@ resources:
     namespaced: true
   controller: true
   domain: managed.openshift.io
-  group: hypershiftlogforwarder.managed.openshift.io
-  kind: HypershiftLogForwarder
-  path: github.com/openshift/hypershift-logging-operator/api/v1
-  version: v1
+  group: logging
+  kind: HyperShiftLogForwarder
+  path: github.com/openshift/hypershift-logging-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: managed.openshift.io
+  group: logging
+  kind: ClusterLogForwarderTemplate
+  path: github.com/openshift/hypershift-logging-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"
