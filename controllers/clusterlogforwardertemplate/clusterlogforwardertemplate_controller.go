@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package clusterlogforwardertemplate
 
 import (
 	"context"
@@ -24,29 +24,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	hypershiftlogforwardermanagedopenshiftiov1 "github.com/openshift/hypershift-logging-operator/api/v1"
+	managedv1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 )
 
-// HypershiftLogForwarderReconciler reconciles a HypershiftLogForwarder object
-type HypershiftLogForwarderReconciler struct {
+// ClusterLogForwarderTemplateReconciler reconciles a ClusterLogForwarderTemplate object
+type ClusterLogForwarderTemplateReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=hypershiftlogforwarder.managed.openshift.io.managed.openshift.io,resources=hypershiftlogforwarders,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=hypershiftlogforwarder.managed.openshift.io.managed.openshift.io,resources=hypershiftlogforwarders/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=hypershiftlogforwarder.managed.openshift.io.managed.openshift.io,resources=hypershiftlogforwarders/finalizers,verbs=update
+//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the HypershiftLogForwarder object against the actual cluster state, and then
+// the ClusterLogForwarderTemplate object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
-func (r *HypershiftLogForwarderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ClusterLogForwarderTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
@@ -55,8 +55,8 @@ func (r *HypershiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *HypershiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ClusterLogForwarderTemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&hypershiftlogforwardermanagedopenshiftiov1.HypershiftLogForwarder{}).
+		For(&managedv1alpha1.ClusterLogForwarderTemplate{}).
 		Complete(r)
 }
