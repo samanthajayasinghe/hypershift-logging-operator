@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -83,6 +84,16 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	setupLog.Info("Registering Components.")
+
+	if err = (&clusterlogforwardertemplate.ClusterLogForwarderTemplateReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterLogForwarderTemplate")
 		os.Exit(1)
 	}
 
