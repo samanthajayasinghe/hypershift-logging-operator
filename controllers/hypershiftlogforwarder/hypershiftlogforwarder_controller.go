@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 )
 
 // HostedCluster keeps hosted cluster info
