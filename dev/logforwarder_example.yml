@@ -1,14 +1,8 @@
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: openshift-hypershift-logging-operator
----
 apiVersion: logging.managed.openshift.io/v1alpha1
 kind: ClusterLogForwarderTemplate
 metadata:
   name: logforwarder-sample
-  namespace: openshift-hypershift-logging-operator
+  namespace: openshift-logging-forwarder-operator
 spec:
   template: 
     outputs:
