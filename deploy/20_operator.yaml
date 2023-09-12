@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logging-forwarder-operator
+  namespace: openshift-logging-forwarder-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: logging-forwarder-operator
+  template:
+    metadata:
+      labels:
+        name: logging-forwarder-operator
+    spec:
+      serviceAccountName: logging-forwarder-operator
+      securityContext:
+        runAsNonRoot: true
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/infra
+                    operator: Exists
+              weight: 1
+      tolerations:
+        - operator: Exists
+          key: node-role.kubernetes.io/infra
+          effect: NoSchedule
+      containers:
+        - name: logging-forwarder-operator
+          image: quay.io/sjayasin_openshift/hypershift-logging-operator@sha256:2b9f2a03dd223e4e6208e6b8fca46adcaee013645973b28cd220e11d33d10009
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "200m"
+            limits:
+              memory: "1G"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
