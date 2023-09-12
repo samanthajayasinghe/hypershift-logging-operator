@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -28,11 +29,15 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
+	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
 
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
@@ -96,6 +101,13 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+	// list pods
+	setupLog.Info("Getting HCP")
+	hcpList, _ := GetHostedClusters()
+	for _, hcp := range hcpList {
+
+		setupLog.Info(hcp.Status.KubeConfig.Name)
+	}
 
 	setupLog.Info("Registering Components.")
 
@@ -103,7 +115,15 @@ func main() {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ClusterLogForwarderTemplate")
+		setupLog.Error(err, "unable to create ClusterLogForwarderTemplate controller", "controller", "ClusterLogForwarderTemplate")
+		os.Exit(1)
+	}
+
+	if err = (&hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create HyperShiftLogForwarderReconciler controller", "controller", "HyperShiftLogForwarderReconciler")
 		os.Exit(1)
 	}
 
@@ -123,4 +143,35 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+
 }
+
+func GetHostedClusters() ([]hyperv1beta1.HostedControlPlane, error) {
+	cl, err := client.New(config.GetConfigOrDie(), client.Options{})
+
+	if err != nil {
+		setupLog.Error(err, "failed to create client")
+		os.Exit(1)
+	}
+
+	hcpList := new(hyperv1beta1.HostedControlPlaneList)
+	if err := cl.List(context.Background(), hcpList, &client.ListOptions{Namespace: ""}); err != nil {
+		return nil, err
+	}
+
+	return hcpList.Items, nil
+}
+
+/*func GetNamespaces(mgr ctrl.Manager) ([]corev1.Namespace, error) {
+	cl, err := client.New(config.GetConfigOrDie(), client.Options{})
+	if err != nil {
+		setupLog.Error(err, "failed to create client")
+		os.Exit(1)
+	}
+	namespaces := &corev1.NamespaceList{}
+	if err := cl.List(context.Background(), namespaces, &client.ListOptions{Namespace: ""}); err != nil {
+		return nil, err
+	}
+
+	return namespaces.Items, nil
+}*/

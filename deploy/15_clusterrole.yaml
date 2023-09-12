@@ -26,6 +26,7 @@ rules:
   - apiGroups:
       - "logging.managed.openshift.io"
     resources:
+      - hypershiftlogforwarders
       - clusterlogforwardertemplates
     verbs:
       - get
