@@ -20,6 +20,8 @@ import (
 	"flag"
 	"os"
 
+	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -45,6 +47,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(hlov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(loggingv1.AddToScheme(scheme))
+	utilruntime.Must(hyperv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 

@@ -19,18 +19,31 @@ package clusterlogforwardertemplate
 import (
 	"context"
 	"fmt"
-	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/go-logr/logr"
+	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+)
 
-	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+const (
+	// Same as the CLO, we set the CLFT as signleton here
+	singletonName = "instance"
+	// ManagedLogForwardTemplatePrefix prefix to identify the entries in the array are managed by template
+	ManagedLogForwardTemplatePrefix = "openshift-sre"
+	TemplateFinalizer               = "logging.managed.openshift.io"
 )
 
 // ClusterLogForwarderTemplateReconciler reconciles a ClusterLogForwarderTemplate object
@@ -40,6 +53,10 @@ type ClusterLogForwarderTemplateReconciler struct {
 	log    logr.Logger
 }
 
+//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates/finalizers,verbs=update
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
@@ -48,23 +65,98 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 ) (ctrl.Result, error) {
 	r.log = ctrllog.FromContext(ctx).WithName("controller")
 
-	logForwarderTemplate := new(hlov1alpha1.ClusterLogForwarderTemplate)
+	if req.NamespacedName.Name != singletonName {
+		err := fmt.Errorf("clusterLogForwarderTemplate name must be '%s'", singletonName)
+		r.log.V(1).Error(err, "")
+		return ctrl.Result{}, err
+	}
 
-	if err := r.Get(ctx, req.NamespacedName, logForwarderTemplate); err != nil {
+	hcpList, err := r.GetHostedControlPlanes(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	template := &hlov1alpha1.ClusterLogForwarderTemplate{}
+	if err := r.Get(ctx, req.NamespacedName, template); err != nil {
 		// Ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification).
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Find all relevant hostedcontrolplanes
-	hcpList, err := r.GetHostedControlPlanes(ctx, logForwarderTemplate)
-	if err != nil {
-		return ctrl.Result{}, err
+	deletion := false
+
+	if !template.DeletionTimestamp.IsZero() {
+		deletion = true
+		controllerutil.RemoveFinalizer(template, TemplateFinalizer)
+		err = r.Client.Update(ctx, template)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		deletion = false
+		controllerutil.AddFinalizer(template, TemplateFinalizer)
+		err = r.Client.Update(ctx, template)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
-	// Ensure a LogForwarder exists for a hostedcontrolplane
-	if err := r.ValidateLogForwarderInHostedControlPlanes(ctx, logForwarderTemplate, hcpList); err != nil {
-		return ctrl.Result{}, err
+	clusterLogForwarder := &loggingv1.ClusterLogForwarder{}
+
+	for _, hcp := range hcpList {
+		found := false
+		err := r.Get(ctx, types.NamespacedName{Name: "instance", Namespace: hcp.Namespace}, clusterLogForwarder)
+		if err != nil && errors.IsNotFound(err) {
+			found = false
+		} else if err == nil {
+			found = true
+		} else {
+			return ctrl.Result{}, err
+		}
+
+		if deletion {
+			// If CLFT is being deleted, and no CLF found, skip
+			if !found {
+				return ctrl.Result{}, nil
+			}
+			// If CLFT is being deleted, and CLF found, clean up the CLF with all the CLFT entries
+			if found {
+				clusterLogForwarder = r.CleanUpClusterLogForwarder(clusterLogForwarder)
+				err = r.Update(ctx, clusterLogForwarder)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+		}
+		if !deletion {
+			// For any reconcile loop, clean up the CLF for entries from CLFT, and build from new CLFT
+			clusterLogForwarder.Name = "instance"
+			clusterLogForwarder.Namespace = hcp.Namespace
+
+			//TODO: Need to fix the serviceaccount name here once we know how to use it
+			//clusterLogForwarder.Spec.ServiceAccountName = template.Spec.Template.ServiceAccountName
+
+			r.CleanUpClusterLogForwarder(clusterLogForwarder)
+			r.BuildInputs(clusterLogForwarder, template)
+			r.BuildOutputs(clusterLogForwarder, template)
+			r.BuildPipelines(clusterLogForwarder, template)
+
+			// Found existing CLF, update with new CLFT
+			if found {
+				if err := r.Update(context.TODO(), clusterLogForwarder); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+			// No CLF found, create with the CLFT entries
+			if !found {
+				if err := r.Create(ctx, clusterLogForwarder); err != nil {
+					return ctrl.Result{}, err
+				}
+				return ctrl.Result{}, nil
+			}
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -74,7 +166,6 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 // Basically does `oc get hostedcontrolplane -A`
 func (r *ClusterLogForwarderTemplateReconciler) GetHostedControlPlanes(
 	ctx context.Context,
-	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate,
 ) ([]hyperv1beta1.HostedControlPlane, error) {
 
 	hcpList := new(hyperv1beta1.HostedControlPlaneList)
@@ -85,126 +176,100 @@ func (r *ClusterLogForwarderTemplateReconciler) GetHostedControlPlanes(
 	return hcpList.Items, nil
 }
 
-// ValidateLogForwarderInHostedControlPlanes
-func (r *ClusterLogForwarderTemplateReconciler) ValidateLogForwarderInHostedControlPlanes(
-	ctx context.Context,
-	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate,
-	hcpList []hyperv1beta1.HostedControlPlane,
-) error {
+// BuildInputs builds the input array from the template and adds to the clean log forwarder
+func (r *ClusterLogForwarderTemplateReconciler) BuildInputs(clusterLogForwarder *loggingv1.ClusterLogForwarder,
+	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate) {
 
-	// We want one logForwarder per namespace/HCP per logForwarderTemplate
-	for _, hcp := range hcpList {
-		r.log.V(1).Info("Validating HostedControlPlane", "namespace", hcp.Namespace, "name", hcp.Name)
-
-		logForwarderList := new(loggingv1.ClusterLogForwarderList)
-		if err := r.List(ctx, logForwarderList, &client.ListOptions{
-			Namespace: hcp.Namespace,
-		}); err != nil {
-			return err
-		}
-
-		// If the HostedControlPlane is deleting, delete the logForwarder
-		if !hcp.DeletionTimestamp.IsZero() {
-			for _, logForwarder := range logForwarderList.Items {
-				logForwarder := logForwarder
-				r.log.V(0).Info("Deleting logForwarder", "namespace", logForwarder.Namespace, "name", logForwarder.Name)
-				if err := r.Delete(ctx, &logForwarder); err != nil {
-					return err
-				}
+	// Build the input from template
+	if len(logForwarderTemplate.Spec.Template.Inputs) < 1 {
+		r.log.V(3).Info("there is no input defined, skipping...")
+	} else {
+		for _, tInput := range logForwarderTemplate.Spec.Template.Inputs {
+			if !strings.Contains(tInput.Name, ManagedLogForwardTemplatePrefix) {
+				tInput.Name = ManagedLogForwardTemplatePrefix + "-" + tInput.Name
 			}
-
-			continue
-		}
-
-		switch {
-		case len(logForwarderList.Items) > 1:
-			r.log.V(0).Info("found more than one matching logForwarder, deleting extras")
-			found := false
-			for _, logForwarder := range logForwarderList.Items {
-				logForwarder := logForwarder
-				// Make sure we only keep one matching logForwarder
-				// If we've already found one that's matching, delete the extras
-				if reflect.DeepEqual(logForwarder.Spec, logForwarderTemplate.Spec) {
-					found = true
-					continue
-				}
-
-				// If the logForwarder doesn't match, delete it
-				r.log.V(0).Info("Deleting logForwarder", "namespace", logForwarder.Namespace, "name", logForwarder.Name)
-				if err := r.Delete(ctx, &logForwarder); err != nil {
-					return err
-				}
-			}
-
-			if !found {
-				if err := r.CreateLogForwarder(ctx, logForwarderTemplate, hcp.Namespace); err != nil {
-					return err
-				}
-			}
-
-		case len(logForwarderList.Items) == 1:
-			if err := r.ReplaceLogForwarderSpec(ctx, &logForwarderList.Items[0], logForwarderTemplate); err != nil {
-				return err
-			}
-		case len(logForwarderList.Items) == 0:
-			// Create a logForwarder if none exists
-			if err := r.CreateLogForwarder(ctx, logForwarderTemplate, hcp.Namespace); err != nil {
-				return err
-			}
+			clusterLogForwarder.Spec.Inputs = append(clusterLogForwarder.Spec.Inputs, tInput)
 		}
 	}
-
-	return nil
 }
 
-// CreateLogForwarder creates a logForwarder provided a logForwarderTemplate and a namespace
-func (r *ClusterLogForwarderTemplateReconciler) CreateLogForwarder(
-	ctx context.Context,
-	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate,
-	namespace string,
-) error {
+// BuildOutputs builds the output array from the template and adds to the clean log forwarder
+func (r *ClusterLogForwarderTemplateReconciler) BuildOutputs(clusterLogForwarder *loggingv1.ClusterLogForwarder,
+	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate) {
 
-	if reflect.ValueOf(logForwarderTemplate.Spec.Template).IsZero() {
-		return fmt.Errorf("empty log forwarder template: %v", logForwarderTemplate.Spec.Template)
+	// Build the pipelines from template
+	if len(logForwarderTemplate.Spec.Template.Outputs) < 1 {
+		r.log.V(3).Info("there is no output defined, skipping...")
+	} else {
+		for _, tOutput := range logForwarderTemplate.Spec.Template.Outputs {
+			if !strings.Contains(tOutput.Name, ManagedLogForwardTemplatePrefix) {
+				tOutput.Name = ManagedLogForwardTemplatePrefix + "-" + tOutput.Name
+			}
+			clusterLogForwarder.Spec.Outputs = append(clusterLogForwarder.Spec.Outputs, tOutput)
+		}
 	}
-
-	clusterLogForwarder := new(loggingv1.ClusterLogForwarder)
-	clusterLogForwarder.Name = logForwarderTemplate.Name
-	clusterLogForwarder.Namespace = namespace
-	clusterLogForwarder.Spec = logForwarderTemplate.Spec.Template
-
-	r.log.V(0).Info("Creating logForwarder", "namespace", clusterLogForwarder.Namespace, "name", clusterLogForwarder.Name)
-	if err := r.Create(ctx, clusterLogForwarder); err != nil {
-		return err
-	}
-
-	return nil
 }
 
-// ReplaceLogForwarderSpec effectively does a "kubectl replace" if the provided actual LogForwarder doesn't match the logForwarderTemplate
-func (r *ClusterLogForwarderTemplateReconciler) ReplaceLogForwarderSpec(
-	ctx context.Context,
-	actual *loggingv1.ClusterLogForwarder,
-	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate,
-) error {
-	if reflect.ValueOf(logForwarderTemplate.Spec.Template).IsZero() {
-		return fmt.Errorf("empty log forwarder template: %v", logForwarderTemplate.Spec.Template)
-	}
+// BuildPipelines builds the pipeline array from the template and adds to the clean log forwarder
+func (r *ClusterLogForwarderTemplateReconciler) BuildPipelines(clusterLogForwarder *loggingv1.ClusterLogForwarder,
+	logForwarderTemplate *hlov1alpha1.ClusterLogForwarderTemplate) {
 
-	if !reflect.DeepEqual(actual.Spec, *logForwarderTemplate.Spec.Template.DeepCopy()) {
-		actual.Spec = *logForwarderTemplate.Spec.Template.DeepCopy()
-		r.log.V(0).Info("Replacing LogForwarder", "namespace", actual.Namespace, "name", actual.Name)
-		if err := r.Update(ctx, actual); err != nil {
-			return err
+	// Build the pipelines from template
+	if len(logForwarderTemplate.Spec.Template.Pipelines) < 1 {
+		r.log.V(3).Info("there is no pipeline defined, skipping...")
+	} else {
+		autoGenName := "auto-generated-name"
+		for x, tPpl := range logForwarderTemplate.Spec.Template.Pipelines {
+			if tPpl.Name == "" {
+				tPpl.Name = autoGenName + strconv.Itoa(x)
+			}
+			if !strings.Contains(tPpl.Name, ManagedLogForwardTemplatePrefix) {
+				tPpl.Name = ManagedLogForwardTemplatePrefix + "-" + tPpl.Name
+			}
+			clusterLogForwarder.Spec.Pipelines = append(clusterLogForwarder.Spec.Pipelines, tPpl)
+		}
+	}
+}
+
+// CleanUpClusterLogForwarder clear the related entries when the template deleted
+func (r *ClusterLogForwarderTemplateReconciler) CleanUpClusterLogForwarder(clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
+	newPipelines := clf.Spec.Pipelines[:0]
+	for _, ppl := range clf.Spec.Pipelines {
+		if !strings.Contains(ppl.Name, ManagedLogForwardTemplatePrefix) {
+			newPipelines = append(newPipelines, ppl)
 		}
 	}
 
-	return nil
+	newInputs := clf.Spec.Inputs[:0]
+	for _, input := range clf.Spec.Inputs {
+		if !strings.Contains(input.Name, ManagedLogForwardTemplatePrefix) {
+			newInputs = append(newInputs, input)
+		}
+	}
+	newOutputs := clf.Spec.Outputs[:0]
+	for _, output := range clf.Spec.Outputs {
+		if !strings.Contains(output.Name, ManagedLogForwardTemplatePrefix) {
+			newOutputs = append(newOutputs, output)
+		}
+	}
+	clf.Spec.Pipelines = newPipelines
+	clf.Spec.Inputs = newInputs
+	clf.Spec.Outputs = newOutputs
+	return clf
+}
+
+func eventPredicates() predicate.Predicate {
+	return predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return true
+		},
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterLogForwarderTemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hlov1alpha1.ClusterLogForwarderTemplate{}).
+		WithEventFilter(eventPredicates()).
 		Complete(r)
 }
