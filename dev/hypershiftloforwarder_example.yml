@@ -1,0 +1,17 @@
+apiVersion: logging.managed.openshift.io/v1alpha1
+kind: HyperShiftLogForwarder
+metadata:
+  name: hypershiftlogforwarder-sample
+spec:
+  outputs:
+    - name: remote-elasticsearch
+      secret:
+        name: elasticsearch
+      type: elasticsearch
+  pipelines:
+    - name: enable-default-log-store
+      inputRefs: [ application, audit, infrastructure ]
+      outputRefs: [ default ]
+    - name: forward-to-remote
+      inputRefs: [ application ]
+      outputRefs: [ remote-elasticsearch ]
