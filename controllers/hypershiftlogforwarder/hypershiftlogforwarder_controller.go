@@ -19,18 +19,61 @@ package hypershiftlogforwarder
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	managedv1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
+
+// HostedCluster keeps hosted cluster info
+type HostedCluster struct {
+	Cluster      cluster.Cluster
+	ClusterId    string
+	HCPNamespace string
+}
 
 // HyperShiftLogForwarderReconciler reconciles a HyperShiftLogForwarder object
 type HyperShiftLogForwarderReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme       *runtime.Scheme
+	MCClint      client.Client
+	HCPNamespace string
+	log          logr.Logger
+}
+
+// NewLogForwarderReconcilerReconciler ...
+func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[string]HostedCluster) (*HyperShiftLogForwarderReconciler, error) {
+	r := HyperShiftLogForwarderReconciler{
+		Scheme: mgr.GetScheme(),
+	}
+
+	for _, hostedCluster := range hostedClusters {
+		r := HyperShiftLogForwarderReconciler{
+			Client:       hostedCluster.Cluster.GetClient(),
+			Scheme:       mgr.GetScheme(),
+			MCClint:      mgr.GetClient(),
+			HCPNamespace: hostedCluster.HCPNamespace,
+		}
+
+		err := ctrl.NewControllerManagedBy(mgr).
+			For(&hlov1alpha1.HyperShiftLogForwarder{}).
+			Watches(
+				source.NewKindWithCache(&hlov1alpha1.HyperShiftLogForwarder{}, hostedCluster.Cluster.GetCache()),
+				&handler.EnqueueRequestForObject{},
+			).
+			Complete(&r)
+		if err != nil {
+
+			return &r, err
+		}
+	}
+
+	return &r, nil
 }
 
 //+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders,verbs=get;list;watch;create;update;patch;delete
@@ -52,11 +95,4 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	// TODO(user): your logic here
 
 	return ctrl.Result{}, nil
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&managedv1alpha1.HyperShiftLogForwarder{}).
-		Complete(r)
 }
