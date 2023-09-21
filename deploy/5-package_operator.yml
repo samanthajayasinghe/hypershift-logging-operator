@@ -1,0 +1,6 @@
+apiVersion: package-operator.run/v1alpha1
+kind: Package
+metadata:
+  name: hypershift-logging-operator
+spec:
+  image: # TODO: Fill me out

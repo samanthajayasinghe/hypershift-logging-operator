@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershift-logging-operator
+  namespace: openshift-hypershift-logging-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: hypershift-logging-operator
+  template:
+    metadata:
+      labels:
+        name: hypershift-logging-operator
+    spec:
+      serviceAccountName: hypershift-logging-operator
+      securityContext:
+        runAsNonRoot: true
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/infra
+                    operator: Exists
+              weight: 1
+      tolerations:
+        - operator: Exists
+          key: node-role.kubernetes.io/infra
+          effect: NoSchedule
+      containers:
+        - name: logging-forwarder-operator
+          image: # TODO: Fill me out
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "200m"
+            limits:
+              memory: "1G"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
