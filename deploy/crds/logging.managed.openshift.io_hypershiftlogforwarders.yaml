@@ -4,6 +4,8 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
+    # see deploy/package/manifest.yaml
+    package-operator.run/phase: hlf
   creationTimestamp: null
   name: hypershiftlogforwarders.logging.managed.openshift.io
 spec:

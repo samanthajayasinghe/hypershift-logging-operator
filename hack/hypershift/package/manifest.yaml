@@ -1,0 +1,22 @@
+apiVersion: manifests.package-operator.run/v1alpha1
+kind: PackageManifest
+metadata:
+  name: hypershift-logging-operator
+spec:
+  scopes:
+    - Namespaced
+  phases:
+    # see deploy/crds/logging.managed.openshift.io_hypershiftlogforwarders.yaml
+    - name: hlf
+      class: hosted-cluster
+
+  # see https://package-operator.run/docs/concepts/probes/#customresourcedefinition
+  availabilityProbes:
+    - selector:
+        kind:
+          group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+      probes:
+      - condition:
+          type: Established
+          status: "True"
