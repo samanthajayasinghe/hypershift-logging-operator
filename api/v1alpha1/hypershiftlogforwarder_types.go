@@ -33,6 +33,7 @@ type HyperShiftLogForwarderStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=hlf
 
 // HyperShiftLogForwarder is the Schema for the hypershiftlogforwarders API
 type HyperShiftLogForwarder struct {

@@ -31,6 +31,7 @@ type ClusterLogForwarderTemplateSpec struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=clft
 
 // ClusterLogForwarderTemplate is the Schema for the clusterlogforwardertemplates API
 type ClusterLogForwarderTemplate struct {
