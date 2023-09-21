@@ -24,7 +24,6 @@ import (
 
 	"github.com/go-logr/logr"
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
-	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 )
 
 const (
@@ -71,7 +71,7 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 		return ctrl.Result{}, err
 	}
 
-	hcpList, err := r.GetHostedControlPlanes(ctx)
+	hcpList, err := hostedcluster.GetHostedControlPlanes(r.Client, ctx, false)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -160,20 +160,6 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// GetHostedControlPlanes returns a list of all hostedcontrolplane resources in all namespaces.
-// Basically does `oc get hostedcontrolplane -A`
-func (r *ClusterLogForwarderTemplateReconciler) GetHostedControlPlanes(
-	ctx context.Context,
-) ([]hyperv1beta1.HostedControlPlane, error) {
-
-	hcpList := new(hyperv1beta1.HostedControlPlaneList)
-	if err := r.List(ctx, hcpList, &client.ListOptions{Namespace: ""}); err != nil {
-		return nil, err
-	}
-
-	return hcpList.Items, nil
 }
 
 // BuildInputs builds the input array from the template and adds to the clean log forwarder
