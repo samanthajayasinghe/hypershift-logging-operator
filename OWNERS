@@ -7,9 +7,11 @@ reviewers:
   - hectorakemp
   - samanthajayasinghe
 approvers:
+  - Tafhim
+  - hectorakemp
   - wanghaoran1988
   - feichashao
   - bmeng
-  - samanthajayasinghe #temp
+  - samanthajayasinghe
   - srep-team-leads
   - sre-architects
