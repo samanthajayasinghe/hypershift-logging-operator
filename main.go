@@ -24,12 +24,8 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	corev1 "k8s.io/api/core/v1"
+	ocroutev1 "github.com/openshift/api/route/v1"
 
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -41,7 +37,6 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/go-logr/logr"
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 
@@ -158,14 +153,21 @@ func main() {
 
 // GetHostedClusters returns HostedControlPlane List
 func initHostedClusters(mgr ctrl.Manager) error {
-	activeHcpList, err := hostedcluster.GetHostedControlPlanes(mgr.GetClient(), context.Background(), true)
+	c, err := client.New(config.GetConfigOrDie(), client.Options{})
+	utilruntime.Must(hyperv1beta1.AddToScheme(c.Scheme()))
+	utilruntime.Must(ocroutev1.AddToScheme(c.Scheme()))
+	activeHcpList, err := hostedcluster.GetHostedClusters(c, context.Background(), true, setupLog)
+
 	if err != nil {
 		return err
 	}
 
 	for _, hcp := range activeHcpList {
 
-		restConfig, err := createGuestKubeconfig(context.Background(), hcp.Namespace, setupLog)
+		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
+
+		setupLog.Info("connecting hosted cluster", "name", hcp.Name)
+		restConfig, err := hostedcluster.CreateGuestKubeconfig(c, hcpNamespace, setupLog)
 		if err != nil {
 			setupLog.Error(err, "getting guest cluster kubeconfig")
 		}
@@ -177,53 +179,11 @@ func initHostedClusters(mgr ctrl.Manager) error {
 
 		hostedCluster := hypershiftlogforwarder.HostedCluster{
 			Cluster:      hsCluster,
-			HCPNamespace: hcp.Namespace,
+			HCPNamespace: hcpNamespace,
 		}
 		hostedClusters[hcp.Name] = hostedCluster
 
 	}
 
 	return nil
-}
-
-func createGuestKubeconfig(ctx context.Context, cpNamespace string, log logr.Logger) (*rest.Config, error) {
-
-	c, err := client.New(config.GetConfigOrDie(), client.Options{})
-
-	localhostKubeconfigSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "localhost-kubeconfig",
-			Namespace: cpNamespace,
-		},
-	}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(localhostKubeconfigSecret), localhostKubeconfigSecret); err != nil {
-		return nil, fmt.Errorf("failed to get hostedcluster localhost kubeconfig: %w", err)
-	}
-	kubeconfigFile, err := os.CreateTemp(os.TempDir(), "kubeconfig-")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tempfile for kubeconfig: %w", err)
-	}
-	defer func() {
-		if err := kubeconfigFile.Sync(); err != nil {
-			log.Error(err, "Failed to sync temporary kubeconfig file")
-		}
-		if err := kubeconfigFile.Close(); err != nil {
-			log.Error(err, "Failed to close temporary kubeconfig file")
-		}
-	}()
-	localhostKubeconfig, err := clientcmd.Load(localhostKubeconfigSecret.Data["kubeconfig"])
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse localhost kubeconfig: %w", err)
-	}
-	if len(localhostKubeconfig.Clusters) == 0 {
-		return nil, fmt.Errorf("no clusters found in localhost kubeconfig")
-	}
-
-	localhostKubeconfigYaml, err := clientcmd.Write(*localhostKubeconfig)
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(localhostKubeconfigYaml)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize localhost kubeconfig: %w", err)
-	}
-
-	return restConfig, nil
 }

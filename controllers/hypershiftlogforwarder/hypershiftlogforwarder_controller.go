@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
@@ -91,9 +91,16 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[st
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	r.log = ctrllog.FromContext(ctx).WithName("controller")
+
+	hlf := &hlov1alpha1.HyperShiftLogForwarder{}
+	if err := r.Get(ctx, req.NamespacedName, hlf); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	r.log.V(1).Info("found HLF", "name", hlf.Name, "Namespace", hlf.Namespace)
+
+	// Update CLF goes here
 
 	return ctrl.Result{}, nil
 }
