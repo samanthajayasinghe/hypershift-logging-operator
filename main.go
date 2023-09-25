@@ -30,17 +30,16 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
 	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 
-	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
 	//+kubebuilder:scaffold:imports
 
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
@@ -58,17 +57,10 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(hlov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(loggingv1.AddToScheme(scheme))
 	utilruntime.Must(hyperv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-
-	//Add hypershift.openshift.io for the hostedcontrolplanes CR
-	utilruntime.Must(hyperv1beta1.AddToScheme(scheme))
-
-	//Add logging.openshift.io for the ClusterLogForwarder CR
-	utilruntime.Must(loggingv1.AddToScheme(scheme))
-
 }
 
 func main() {
@@ -127,11 +119,19 @@ func main() {
 	for _, hsCluster := range hostedClusters {
 		clusterScheme := hsCluster.Cluster.GetScheme()
 		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
-		utilruntime.Must(hlov1alpha1.AddToScheme(clusterScheme))
+		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
 		mgr.Add(hsCluster.Cluster)
 	}
 
 	_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr, hostedClusters)
+
+	if err = (&hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		MCClient: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "HyperShiftLogForwarder")
+	}
 
 	//+kubebuilder:scaffold:builder
 
