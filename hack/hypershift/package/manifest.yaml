@@ -7,7 +7,7 @@ spec:
     - Namespaced
   phases:
     # see deploy/crds/logging.managed.openshift.io_hypershiftlogforwarders.yaml
-    - name: hlf
+    - name: hosted-cluster
       class: hosted-cluster
 
   # see https://package-operator.run/docs/concepts/probes/#customresourcedefinition
