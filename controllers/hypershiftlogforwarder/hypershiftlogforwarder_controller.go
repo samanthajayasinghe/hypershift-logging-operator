@@ -279,10 +279,3 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 	}
 	return nil
 }
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.HyperShiftLogForwarder{}).
-		Complete(r)
-}
