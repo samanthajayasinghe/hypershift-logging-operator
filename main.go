@@ -125,14 +125,6 @@ func main() {
 
 	_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr, hostedClusters)
 
-	if err = (&hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		MCClient: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "HyperShiftLogForwarder")
-	}
-
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
