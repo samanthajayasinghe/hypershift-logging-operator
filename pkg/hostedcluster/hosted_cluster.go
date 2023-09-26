@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
-	ocroutev1 "github.com/openshift/api/route/v1"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +13,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	KubeConfigSecret = "service-network-admin-kubeconfig"
+	KubeAPISvcName   = "kube-apiserver"
+	KubeDnsSuffix    = "svc.cluster.local"
 )
 
 // GetHostedControlPlanes returns a list of all hostedcontrolplane based on search criteria
@@ -86,30 +91,21 @@ func GetHostedClusters(
 	return hcList.Items, nil
 }
 
-func CreateGuestKubeconfig(
+// BuildGuestKubeConfig builds the kubeconfig for client to access the hosted cluster from the secrets in HCP namespace
+func BuildGuestKubeConfig(
 	c client.Client,
-	cpNamespace string,
+	hcpNamespace string,
 	log logr.Logger,
 ) (*rest.Config, error) {
 
-	localhostKubeconfigSecret := &corev1.Secret{
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "localhost-kubeconfig",
-			Namespace: cpNamespace,
+			Name:      KubeConfigSecret,
+			Namespace: hcpNamespace,
 		},
 	}
-	if err := c.Get(context.Background(), client.ObjectKeyFromObject(localhostKubeconfigSecret), localhostKubeconfigSecret); err != nil {
-		return nil, fmt.Errorf("failed to get hostedcluster localhost kubeconfig: %w", err)
-	}
-
-	localhostKubeRoute := &ocroutev1.Route{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kube-apiserver",
-			Namespace: cpNamespace,
-		},
-	}
-	if err := c.Get(context.Background(), client.ObjectKeyFromObject(localhostKubeRoute), localhostKubeRoute); err != nil {
-		return nil, fmt.Errorf("failed to get kube-apiserver-internal route: %w", err)
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(secret), secret); err != nil {
+		return nil, fmt.Errorf("failed to get hostedcluster admin kubeconfig: %w", err)
 	}
 
 	kubeconfigFile, err := os.CreateTemp(os.TempDir(), "kubeconfig-")
@@ -124,24 +120,24 @@ func CreateGuestKubeconfig(
 			log.Error(err, "Failed to close temporary kubeconfig file")
 		}
 	}()
-	localhostKubeconfig, err := clientcmd.Load(localhostKubeconfigSecret.Data["kubeconfig"])
+	kubeConfig, err := clientcmd.Load(secret.Data["kubeconfig"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse localhost kubeconfig: %w", err)
+		return nil, fmt.Errorf("failed to parse kubeconfig from the secret: %w", err)
 	}
-	if len(localhostKubeconfig.Clusters) == 0 {
-		return nil, fmt.Errorf("no clusters found in localhost kubeconfig")
-	}
-
-	log.Info("connecting API server  cluster", "api-endpoint", localhostKubeRoute.Spec.Host)
-
-	for k := range localhostKubeconfig.Clusters {
-		localhostKubeconfig.Clusters[k].Server = fmt.Sprintf("https://%s:6443", localhostKubeRoute.Spec.Host)
+	if len(kubeConfig.Clusters) == 0 {
+		return nil, fmt.Errorf("no clusters found in admin kubeconfig")
 	}
 
-	localhostKubeconfigYaml, err := clientcmd.Write(*localhostKubeconfig)
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(localhostKubeconfigYaml)
+	log.Info("connecting API server  cluster", "api-endpoint")
+
+	for k := range kubeConfig.Clusters {
+		kubeConfig.Clusters[k].Server = fmt.Sprintf("https://%s.%s.%s:6443", KubeAPISvcName, hcpNamespace, KubeDnsSuffix)
+	}
+
+	kubeConfigYaml, err := clientcmd.Write(*kubeConfig)
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeConfigYaml)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize localhost kubeconfig: %w", err)
+		return nil, fmt.Errorf("failed to serialize kubeconfig: %w", err)
 	}
 
 	return restConfig, nil

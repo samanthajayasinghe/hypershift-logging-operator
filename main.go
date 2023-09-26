@@ -159,7 +159,7 @@ func initHostedClusters(mgr ctrl.Manager) error {
 		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
 
 		setupLog.Info("connecting hosted cluster", "name", hcp.Name)
-		restConfig, err := hostedcluster.CreateGuestKubeconfig(c, hcpNamespace, setupLog)
+		restConfig, err := hostedcluster.BuildGuestKubeConfig(c, hcpNamespace, setupLog)
 		if err != nil {
 			setupLog.Error(err, "getting guest cluster kubeconfig")
 		}
