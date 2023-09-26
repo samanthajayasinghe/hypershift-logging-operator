@@ -128,10 +128,11 @@ func BuildGuestKubeConfig(
 		return nil, fmt.Errorf("no clusters found in admin kubeconfig")
 	}
 
-	log.Info("connecting API server  cluster", "api-endpoint")
+	serverAPI := fmt.Sprintf("https://%s.%s.%s:6443", KubeAPISvcName, hcpNamespace, KubeDnsSuffix)
+	log.Info("connecting API server  cluster", "api-endpoint", serverAPI)
 
 	for k := range kubeConfig.Clusters {
-		kubeConfig.Clusters[k].Server = fmt.Sprintf("https://%s.%s.%s:6443", KubeAPISvcName, hcpNamespace, KubeDnsSuffix)
+		kubeConfig.Clusters[k].Server = serverAPI
 	}
 
 	kubeConfigYaml, err := clientcmd.Write(*kubeConfig)
