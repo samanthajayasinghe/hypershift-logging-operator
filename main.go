@@ -107,12 +107,13 @@ func main() {
 	if err = (&clusterlogforwardertemplate.ClusterLogForwarderTemplateReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Mgr:    mgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterLogForwarderTemplate")
 		os.Exit(1)
 	}
 
-	if err := initHostedClusters(mgr); err != nil {
+	/*if err := initHostedClusters(mgr); err != nil {
 		setupLog.Error(err, "Init hosted clusters")
 	}
 
@@ -123,7 +124,16 @@ func main() {
 		mgr.Add(hsCluster.Cluster)
 	}
 
-	_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr, hostedClusters)
+	//_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr, hostedClusters)
+
+	if err = (&hostedclustercontroller.HostedClusterReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Mgr:    mgr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterLogForwarderTemplate")
+		os.Exit(1)
+	}*/
 
 	//+kubebuilder:scaffold:builder
 

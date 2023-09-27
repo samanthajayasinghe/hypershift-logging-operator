@@ -18,24 +18,42 @@ package clusterlogforwardertemplate
 
 import (
 	"context"
+	coreError "errors"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/go-logr/logr"
-	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
-	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
-	"github.com/openshift/hypershift-logging-operator/pkg/consts"
-	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
+	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+)
+
+var (
+	currentBuilder *builder.Builder
+	rctx           context.Context
+	cancelFunc     context.CancelFunc
+	subClusters    = map[string]hypershiftlogforwarder.HostedCluster{}
 )
 
 // ClusterLogForwarderTemplateReconciler reconciles a ClusterLogForwarderTemplate object
@@ -43,6 +61,7 @@ type ClusterLogForwarderTemplateReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	log    logr.Logger
+	Mgr    ctrl.Manager
 }
 
 //+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates,verbs=get;list;watch;create;update;patch;delete
@@ -57,7 +76,88 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 ) (ctrl.Result, error) {
 	r.log = ctrllog.FromContext(ctx).WithName("controller")
 
-	if req.NamespacedName.Name != consts.SingletonName {
+	r.log.V(1).Info("testing", "namespace", req.Namespace)
+
+	clusterLogForwarderTemplate := &hlov1alpha1.ClusterLogForwarderTemplate{}
+
+	err := r.Get(ctx, req.NamespacedName, clusterLogForwarderTemplate)
+
+	found := false
+	if err != nil && errors.IsNotFound(err) {
+		found = false
+	} else if err == nil {
+		found = true
+	} else {
+		return ctrl.Result{}, err
+	}
+
+	deletion := false
+	// HyperShiftLogForwarder was deleted by CU
+	if !clusterLogForwarderTemplate.DeletionTimestamp.IsZero() {
+		deletion = true
+	}
+	r.log.V(1).Info("testing", "deletion", deletion, "found", found)
+	if found {
+		restConfigSubA, err := createGuestKubeconfig(context.Background(), "ocm-stg-hs-two", r.log)
+		if err != nil {
+			r.log.Error(err, "getting guest cluster kubeconfig")
+		}
+		subAcluster, err := cluster.New(restConfigSubA)
+		if err != nil {
+			r.log.Error(err, "creating guest cluster kubeconfig")
+		}
+
+		rctx = context.Background()
+		rctx, cancelFunc = context.WithCancel(rctx)
+		rhc := hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
+			Client:       subAcluster.GetClient(),
+			Scheme:       r.Scheme,
+			MCClient:     r.Client,
+			HCPNamespace: "ocm-stg-hs-two",
+			Log:          r.log,
+			Ctx:          rctx,
+		}
+
+		hostedCluster := hypershiftlogforwarder.HostedCluster{
+			Cluster:      subAcluster,
+			HCPNamespace: "ocm-stg-hs-two",
+			Reconciler:   rhc,
+		}
+		subClusters["abc"] = hostedCluster
+
+		//Adding new hosted cluster to the manager
+		clusterScheme := hostedCluster.Cluster.GetScheme()
+		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
+		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
+
+		r.Mgr.Add(hostedCluster.Cluster)
+		go func() {
+			currentBuilder := ctrl.NewControllerManagedBy(r.Mgr).
+				Named("abc").
+				For(&v1alpha1.HyperShiftLogForwarder{}).
+				Watches(
+					source.NewKindWithCache(&v1alpha1.HyperShiftLogForwarder{}, hostedCluster.Cluster.GetCache()),
+					&handler.EnqueueRequestForObject{},
+				)
+
+			err = currentBuilder.Complete(&rhc)
+
+		}()
+
+		if err != nil {
+
+			return ctrl.Result{}, err
+		}
+
+	} else {
+		r.log.V(1).Info("testing", "found", found)
+		subCluster := subClusters["abc"]
+		rctx := subCluster.Reconciler.Ctx
+		rctx.Done()
+		r.log.V(1).Info("finished context")
+	}
+
+	/*if req.NamespacedName.Name != consts.SingletonName {
 		err := fmt.Errorf("clusterLogForwarderTemplate name must be '%s'", consts.SingletonName)
 		r.log.V(1).Error(err, "")
 		return ctrl.Result{}, err
@@ -150,7 +250,7 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 			}
 		}
 	}
-
+	*/
 	return ctrl.Result{}, nil
 }
 
@@ -160,6 +260,68 @@ func eventPredicates() predicate.Predicate {
 			return true
 		},
 	}
+}
+
+func operation1(ctx context.Context) error {
+	// Let's assume that this operation failed for some reason
+	// We use time.Sleep to simulate a resource intensive operation
+	time.Sleep(100 * time.Millisecond)
+	return coreError.New("failed")
+}
+
+func operation2(ctx context.Context) {
+	// We use a similar pattern to the HTTP server
+	// that we saw in the earlier example
+	select {
+
+	case <-ctx.Done():
+		fmt.Println("halted operation2")
+	}
+}
+
+func createGuestKubeconfig(ctx context.Context, cpNamespace string, log logr.Logger) (*rest.Config, error) {
+
+	c, err := client.New(config.GetConfigOrDie(), client.Options{})
+
+	localhostKubeconfigSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "localhost-kubeconfig",
+			Namespace: cpNamespace,
+		},
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(localhostKubeconfigSecret), localhostKubeconfigSecret); err != nil {
+		return nil, fmt.Errorf("failed to get hostedcluster localhost kubeconfig: %w", err)
+	}
+	kubeconfigFile, err := os.CreateTemp(os.TempDir(), "kubeconfig-")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tempfile for kubeconfig: %w", err)
+	}
+	defer func() {
+		if err := kubeconfigFile.Sync(); err != nil {
+			log.Error(err, "Failed to sync temporary kubeconfig file")
+		}
+		if err := kubeconfigFile.Close(); err != nil {
+			log.Error(err, "Failed to close temporary kubeconfig file")
+		}
+	}()
+	localhostKubeconfig, err := clientcmd.Load(localhostKubeconfigSecret.Data["kubeconfig"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse localhost kubeconfig: %w", err)
+	}
+	if len(localhostKubeconfig.Clusters) == 0 {
+		return nil, fmt.Errorf("no clusters found in localhost kubeconfig")
+	}
+
+	//for k := range localhostKubeconfig.Clusters {
+	//	localhostKubeconfig.Clusters[k].Server = fmt.Sprintf("https://localhost:%d", localPort)
+	//}
+	localhostKubeconfigYaml, err := clientcmd.Write(*localhostKubeconfig)
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(localhostKubeconfigYaml)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize localhost kubeconfig: %w", err)
+	}
+
+	return restConfig, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -36,6 +36,7 @@ import (
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 )
 
 var (
@@ -64,6 +65,7 @@ type HostedCluster struct {
 	Cluster      cluster.Cluster
 	ClusterId    string
 	HCPNamespace string
+	Reconciler   HyperShiftLogForwarderReconciler
 }
 
 // HyperShiftLogForwarderReconciler reconciles a HyperShiftLogForwarder object
@@ -72,7 +74,8 @@ type HyperShiftLogForwarderReconciler struct {
 	Scheme       *runtime.Scheme
 	MCClient     client.Client
 	HCPNamespace string
-	log          logr.Logger
+	Log          logr.Logger
+	Ctx          context.Context
 }
 
 //+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders,verbs=get;list;watch;create;update;patch;delete
@@ -114,6 +117,8 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[st
 func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
 	log := logr.Logger{}.WithName("hyperShiftLogForwarder-controller")
+
+	r.Log.V(1).Info("hypershift loger", "namespace", req.Namespace)
 
 	instance := &v1alpha1.HyperShiftLogForwarder{}
 
@@ -221,7 +226,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 func (r *HyperShiftLogForwarderReconciler) ValidateInputs(hlf *v1alpha1.HyperShiftLogForwarder) error {
 	for _, input := range hlf.Spec.Inputs {
 		if input.Infrastructure != nil || input.Application != nil {
-			r.log.V(3).Info("support only audit log for HyperShiftLogForwarder")
+			r.Log.V(3).Info("support only audit log for HyperShiftLogForwarder")
 			hlf.Status.Conditions.SetCondition(nonSupportTypeCondition)
 			if err := r.Status().Update(context.TODO(), hlf); err != nil {
 				return err
@@ -229,7 +234,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidateInputs(hlf *v1alpha1.HyperShi
 			return fmt.Errorf("support only audit log for HyperShiftLogForwarder")
 		}
 		if strings.Contains(input.Name, consts.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the input name", consts.ProviderManagedRuleNamePrefix))
+			r.Log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the input name", consts.ProviderManagedRuleNamePrefix))
 			hlf.Status.Conditions.SetCondition(illegalNameCondition)
 			if err := r.Status().Update(context.TODO(), hlf); err != nil {
 				return err
@@ -244,7 +249,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidateInputs(hlf *v1alpha1.HyperShi
 func (r *HyperShiftLogForwarderReconciler) ValidateOutputs(hlf *v1alpha1.HyperShiftLogForwarder) error {
 	for _, output := range hlf.Spec.Outputs {
 		if strings.Contains(output.Name, consts.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the output name", consts.ProviderManagedRuleNamePrefix))
+			r.Log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the output name", consts.ProviderManagedRuleNamePrefix))
 			hlf.Status.Conditions.SetCondition(illegalNameCondition)
 			if err := r.Status().Update(context.TODO(), hlf); err != nil {
 				return err
@@ -260,7 +265,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 	for _, ppl := range hlf.Spec.Pipelines {
 		for _, ir := range ppl.InputRefs {
 			if ir == "application" || ir == "infrastructure" {
-				r.log.V(3).Info("support only audit log for HyperShiftLogForwarder")
+				r.Log.V(3).Info("support only audit log for HyperShiftLogForwarder")
 				hlf.Status.Conditions.SetCondition(nonSupportTypeCondition)
 				if err := r.Status().Update(context.TODO(), hlf); err != nil {
 					return err
@@ -269,7 +274,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 			}
 		}
 		if strings.Contains(ppl.Name, consts.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the pipeline name", consts.ProviderManagedRuleNamePrefix))
+			r.Log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the pipeline name", consts.ProviderManagedRuleNamePrefix))
 			hlf.Status.Conditions.SetCondition(illegalNameCondition)
 			if err := r.Status().Update(context.TODO(), hlf); err != nil {
 				return err
@@ -278,4 +283,11 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 		}
 	}
 	return nil
+}
+
+func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&hyperv1beta1.HostedCluster{}).
+		// WithEventFilter(eventPredicates()).
+		Complete(r)
 }
