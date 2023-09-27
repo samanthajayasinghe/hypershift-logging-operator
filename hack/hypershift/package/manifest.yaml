@@ -5,6 +5,7 @@ metadata:
 spec:
   scopes:
     - Namespaced
+    - Cluster
   phases:
     # see deploy/crds/logging.managed.openshift.io_hypershiftlogforwarders.yaml
     - name: hosted-cluster
