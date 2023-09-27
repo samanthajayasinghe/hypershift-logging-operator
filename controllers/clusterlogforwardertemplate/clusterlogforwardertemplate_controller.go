@@ -106,6 +106,8 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 			return ctrl.Result{}, err
 		}
 
+		r.log.V(1).Info("Status", "Deletion", deletion, "Found", found)
+
 		if deletion {
 			// If CLFT is being deleted, and no CLF found, skip
 			if !found {

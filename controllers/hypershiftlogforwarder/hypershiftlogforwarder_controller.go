@@ -30,12 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 )
 
 var (
@@ -63,7 +62,10 @@ var (
 type HostedCluster struct {
 	Cluster      cluster.Cluster
 	ClusterId    string
+	ClusterName  string
 	HCPNamespace string
+	Context      *context.Context
+	CancelFunc   *context.CancelFunc
 }
 
 // HyperShiftLogForwarderReconciler reconciles a HyperShiftLogForwarder object
@@ -93,13 +95,28 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[st
 			HCPNamespace: hostedCluster.HCPNamespace,
 		}
 
-		err := ctrl.NewControllerManagedBy(mgr).
-			For(&v1alpha1.HyperShiftLogForwarder{}).
-			Watches(
-				source.NewKindWithCache(&v1alpha1.HyperShiftLogForwarder{}, hostedCluster.Cluster.GetCache()),
-				&handler.EnqueueRequestForObject{},
-			).
-			Complete(&r)
+		leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.ClusterName)
+		mgrHostedCluster, err := ctrl.NewManager(hostedCluster.Cluster.GetConfig(), ctrl.Options{
+			Scheme:                 r.Scheme,
+			HealthProbeBindAddress: "",
+			LeaderElection:         false,
+			MetricsBindAddress:     "0",
+			LeaderElectionID:       leaderElectionID,
+		})
+
+		go func() {
+			err = ctrl.NewControllerManagedBy(mgrHostedCluster).
+				Named(hostedCluster.ClusterName).
+				For(&v1alpha1.HyperShiftLogForwarder{}).
+				Complete(&r)
+
+			r.log.Info("starting HostedCluster manager", "Name", hostedCluster.ClusterName)
+			if err := mgrHostedCluster.Start(*hostedCluster.Context); err != nil {
+				r.log.Error(err, "problem running HostedCluster manager", "Name", hostedCluster.ClusterName)
+			}
+
+		}()
+
 		if err != nil {
 
 			return &r, err
@@ -114,7 +131,7 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[st
 func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
 	log := logr.Logger{}.WithName("hyperShiftLogForwarder-controller")
-
+	log.V(1).Info("start reconcile", "Name", req.NamespacedName)
 	instance := &v1alpha1.HyperShiftLogForwarder{}
 
 	if r.HCPNamespace == "" {
@@ -278,4 +295,11 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 		}
 	}
 	return nil
+}
+
+func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&hyperv1beta1.HostedCluster{}).
+		// WithEventFilter(eventPredicates()).
+		Complete(r)
 }

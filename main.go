@@ -42,6 +42,7 @@ import (
 
 	//+kubebuilder:scaffold:imports
 
+	hostedclustercontroller "github.com/openshift/hypershift-logging-operator/controllers/hostedcluster"
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
 
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
@@ -104,6 +105,7 @@ func main() {
 
 	setupLog.Info("Registering Components.")
 
+	//Adding ClusterLogForwarderTemplate controller
 	if err = (&clusterlogforwardertemplate.ClusterLogForwarderTemplateReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -112,6 +114,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	//Adding HyperShiftLogForwarder controller for all active hosted clusters
 	if err := initHostedClusters(mgr); err != nil {
 		setupLog.Error(err, "Init hosted clusters")
 	}
@@ -120,12 +123,25 @@ func main() {
 		clusterScheme := hsCluster.Cluster.GetScheme()
 		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
 		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
-		mgr.Add(hsCluster.Cluster)
+		//mgr.Add(hsCluster.Cluster)
 	}
 
 	_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr, hostedClusters)
 
-	//+kubebuilder:scaffold:builder
+	if err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "HyperShiftLogForwarder")
+		os.Exit(1)
+	}
+
+	//Adding HostedCluster controller
+	if err = (&hostedclustercontroller.HostedClusterReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Mgr:    mgr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "HostedCluster")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -169,9 +185,15 @@ func initHostedClusters(mgr ctrl.Manager) error {
 			setupLog.Error(err, "creating guest cluster kubeconfig")
 		}
 
+		ctx := context.Background()
+		ctx, cancelFunc := context.WithCancel(ctx)
+
 		hostedCluster := hypershiftlogforwarder.HostedCluster{
 			Cluster:      hsCluster,
 			HCPNamespace: hcpNamespace,
+			ClusterName:  hcp.Name,
+			Context:      &ctx,
+			CancelFunc:   &cancelFunc,
 		}
 		hostedClusters[hcp.Name] = hostedCluster
 

@@ -16,9 +16,11 @@ import (
 )
 
 const (
-	KubeConfigSecret = "service-network-admin-kubeconfig"
-	KubeAPISvcName   = "kube-apiserver"
-	KubeDnsSuffix    = "svc.cluster.local"
+	KubeConfigSecret                    = "service-network-admin-kubeconfig"
+	KubeAPISvcName                      = "kube-apiserver"
+	KubeDnsSuffix                       = "svc.cluster.local"
+	HostedClusterAvailableCondition     = "Available"
+	HostedClusterVersionCompletedStatus = "Completed"
 )
 
 // GetHostedControlPlanes returns a list of all hostedcontrolplane based on search criteria
@@ -64,24 +66,7 @@ func GetHostedClusters(
 		var filterList []hyperv1beta1.HostedCluster
 
 		for _, hc := range hcList.Items {
-			ready := false
-			progress := false
-			for i := range hc.Status.Conditions {
-				c := hc.Status.Conditions[i]
-
-				if c.Type == "Available" && c.Status == v1.ConditionTrue {
-					ready = true
-				}
-			}
-
-			for j := range hc.Status.Version.History {
-				history := hc.Status.Version.History[j]
-				if history.State == "Completed" {
-					progress = true
-				}
-			}
-
-			if ready && progress {
+			if IsReadyHostedCluster(hc) {
 				filterList = append(filterList, hc)
 			}
 		}
@@ -89,6 +74,33 @@ func GetHostedClusters(
 	}
 
 	return hcList.Items, nil
+}
+
+// IsReadyHostedCluster returns true if hostedcuster is ready and Completed
+func IsReadyHostedCluster(hostedCluster hyperv1beta1.HostedCluster) bool {
+	ready := false
+	progress := false
+	for i := range hostedCluster.Status.Conditions {
+		c := hostedCluster.Status.Conditions[i]
+
+		if c.Type == HostedClusterAvailableCondition && c.Status == v1.ConditionTrue {
+			ready = true
+		}
+	}
+
+	if hostedCluster.Status.Version != nil {
+		for j := range hostedCluster.Status.Version.History {
+			history := hostedCluster.Status.Version.History[j]
+			if history.State == HostedClusterVersionCompletedStatus {
+				progress = true
+			}
+		}
+	}
+
+	if ready && progress {
+		return true
+	}
+	return false
 }
 
 // BuildGuestKubeConfig builds the kubeconfig for client to access the hosted cluster from the secrets in HCP namespace
