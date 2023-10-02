@@ -36,7 +36,7 @@ objects:
     spec:
       clusterDeploymentSelector:
         matchLabels:
-          api.openshift.com/managed: "true"
+          ext-hypershift.openshift.io/cluster-type: management-cluster
       resourceApplyMode: Sync
       resources:
         - apiVersion: v1
