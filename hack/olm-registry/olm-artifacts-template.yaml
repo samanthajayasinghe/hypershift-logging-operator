@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: selectorsyncset-template
+
+parameters:
+  - name: REGISTRY_IMG
+    required: true
+  - name: CHANNEL
+    value: staging
+    required: true
+  - name: IMAGE_TAG
+    required: true
+  - name: IMAGE_DIGEST
+    required: true
+  - name: REPO_NAME
+    value: hypershift-logging-operator
+    required: true
+  - name: DISPLAY_NAME
+    value: HyperShift Logging Operator
+    required: true
+
+objects:
+  - apiVersion: hive.openshift.io/v1
+    kind: SelectorSyncSet
+    metadata:
+      annotations:
+        component-display-name: ${DISPLAY_NAME}
+        component-name: ${REPO_NAME}
+        telemeter-query: csv_succeeded{_id="$CLUSTER_ID",name=~"${REPO_NAME}.*",exported_namespace=~"openshift-.*",namespace="openshift-operator-lifecycle-manager"} == 1
+      labels:
+        managed.openshift.io/gitHash: ${IMAGE_TAG}
+        managed.openshift.io/gitRepoName: ${REPO_NAME}
+        managed.openshift.io/osd: "true"
+      name: hypershift-logging-operator
+    spec:
+      clusterDeploymentSelector:
+        matchLabels:
+          api.openshift.com/managed: "true"
+      resourceApplyMode: Sync
+      resources:
+        - apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: openshift-hypershift-logging-operator
+            labels:
+              openshift.io/cluster-monitoring: "true"
+              pod-security.kubernetes.io/enforce: 'baseline'
+              pod-security.kubernetes.io/audit: 'baseline'
+              pod-security.kubernetes.io/warn: 'baseline'
+        - apiVersion: operators.coreos.com/v1alpha1
+          kind: CatalogSource
+          metadata:
+            name: hypershift-logging-operator-registry
+            namespace: openshift-hypershift-logging-operator
+          spec:
+            sourceType: grpc
+            grpcPodConfig:
+              securityContextConfig: restricted
+              nodeSelector:
+                node-role.kubernetes.io: infra
+              tolerations:
+                - effect: NoSchedule
+                  key: node-role.kubernetes.io/infra
+                  operator: Exists
+            image: ${REGISTRY_IMG}@${IMAGE_DIGEST}
+            displayName: HyperShift Logging Operator
+            publisher: Red Hat
+        - apiVersion: operators.coreos.com/v1
+          kind: OperatorGroup
+          metadata:
+            name: hypershift-logging-operator-og
+            namespace: openshift-hypershift-logging-operator
+            annotations:
+              olm.operatorframework.io/exclude-global-namespace-resolution: 'true'
+          spec:
+            targetNamespaces:
+              - openshift-hypershift-logging-operator
+        - apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: hypershift-logging-operator
+            namespace: openshift-hypershift-logging-operator
+          spec:
+            channel: ${CHANNEL}
+            name: hypershift-logging-operator
+            source: hypershift-logging-operator-registry
+            sourceNamespace: openshift-hypershift-logging-operator
