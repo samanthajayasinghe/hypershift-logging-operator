@@ -1,0 +1,48 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  name: hypershift-logging-operator-0.0.1
+  namespace: placeholder
+  annotations:
+    categories: A list of comma separated categories that your operator falls under.
+    certified: "false"
+    description: Logging operator for hypershift clusters.
+    containerImage: quay.io/app-sre/hypershift-logging-operator:latest
+    support: Red Hat OpenShift SRE
+spec:
+  displayName: hypershift-logging-operator
+  description: Logging operator for hypershift clusters.
+  keywords:
+    - kubernetes
+    - openshift
+    - multi-cluster
+    - cluster
+  version: 0.0.1
+  provider:
+    name: Red Hat, Inc
+  maturity: alpha
+  maintainers:
+    - name: OpenShift SRE
+  links:
+    - url: https://github.com/openshift/hypershift-logging-operator
+  installModes:
+    - type: OwnNamespace
+      supported: true
+    - type: SingleNamespace
+      supported: true
+    - type: MultiNamespace
+      supported: false
+    - type: AllNamespaces
+      supported: false
+  install:
+    strategy: deployment
+    spec:
+      clusterPermissions:
+        - serviceAccountName: hypershift-logging-operator
+          # Rules will be added here by the generate-operator-bundle.py script.
+      deployments:
+        - name: hypershift-logging-operator
+          # Deployment spec will be added here by the generate-operator-bundle.py script.
+  customresourcedefinitions:
+    owned:
+    # CRD's will be added here by the generate-operator-bundle.py
