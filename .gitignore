@@ -7,9 +7,10 @@
 *.dll
 *.so
 *.dylib
-bin
 testbin/*
 Dockerfile.cross
+build/_output/
+saas-hypershift-logging-operator-bundle/
 
 # Test binary, build with `go test -c`
 *.test
