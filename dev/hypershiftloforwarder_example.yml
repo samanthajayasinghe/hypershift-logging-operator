@@ -11,7 +11,7 @@ metadata:
   namespace: openshift-logging
 spec:
   outputs:
-    - name: remote-elasticsearch-x
+    - name: remote-elasticsearch-YXB
       secret:
         name: elasticsearch
       type: elasticsearch

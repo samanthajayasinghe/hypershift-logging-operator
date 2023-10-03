@@ -33,10 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
@@ -107,21 +105,40 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 			r.log.Error(err, "creating guest cluster kubeconfig")
 		}
 
+		mgrSub, err := ctrl.NewManager(restConfigSubA, ctrl.Options{
+			Scheme:                 r.Scheme,
+			HealthProbeBindAddress: "",
+			LeaderElection:         false,
+			MetricsBindAddress:     "0",
+			LeaderElectionID:       "0b68d5399.logging.managed.openshift.io",
+			// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
+			// when the Manager ends. This requires the binary to immediately end when the
+			// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
+			// speeds up voluntary leader transitions as the new leader don't have to wait
+			// LeaseDuration time first.
+			//
+			// In the default scaffold provided, the program ends immediately after
+			// the manager stops, so would be fine to enable this option. However,
+			// if you are doing or is intended to do any operation such as perform cleanups
+			// after the manager stops then its usage might be unsafe.
+			// LeaderElectionReleaseOnCancel: true,
+		})
+
 		rctx = context.Background()
 		rctx, cancelFunc = context.WithCancel(rctx)
 		rhc := hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
-			Client:       subAcluster.GetClient(),
+			Client:       mgrSub.GetClient(),
 			Scheme:       r.Scheme,
 			MCClient:     r.Client,
 			HCPNamespace: "ocm-stg-hs-two",
 			Log:          r.log,
-			Ctx:          rctx,
 		}
 
 		hostedCluster := hypershiftlogforwarder.HostedCluster{
 			Cluster:      subAcluster,
 			HCPNamespace: "ocm-stg-hs-two",
-			Reconciler:   rhc,
+			Context:      rctx,
+			CancelFunc:   cancelFunc,
 		}
 		subClusters["abc"] = hostedCluster
 
@@ -130,9 +147,8 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
 		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
 
-		r.Mgr.Add(hostedCluster.Cluster)
 		go func() {
-			currentBuilder := ctrl.NewControllerManagedBy(r.Mgr).
+			/*currentBuilder := ctrl.NewControllerManagedBy(mgrSub).
 				Named("abc").
 				For(&v1alpha1.HyperShiftLogForwarder{}).
 				Watches(
@@ -141,6 +157,20 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 				)
 
 			err = currentBuilder.Complete(&rhc)
+
+			r.log.Info("starting sub manager")
+			if err := mgrSub.Start(rctx); err != nil {
+				r.log.Error(err, "problem running sub manager")
+			}*/
+			ctrl.NewControllerManagedBy(mgrSub).
+				Named("abc").
+				For(&hlov1alpha1.HyperShiftLogForwarder{}).
+				Complete(&rhc)
+
+			r.log.Info("starting sub manager")
+			if err := mgrSub.Start(rctx); err != nil {
+				r.log.Error(err, "problem running sub manager")
+			}
 
 		}()
 
@@ -151,9 +181,8 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 
 	} else {
 		r.log.V(1).Info("testing", "found", found)
-		subCluster := subClusters["abc"]
-		rctx := subCluster.Reconciler.Ctx
-		rctx.Done()
+		subCluster, _ := subClusters["abc"]
+		subCluster.CancelFunc()
 		r.log.V(1).Info("finished context")
 	}
 

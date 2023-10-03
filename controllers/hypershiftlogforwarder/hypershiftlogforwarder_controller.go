@@ -65,7 +65,8 @@ type HostedCluster struct {
 	Cluster      cluster.Cluster
 	ClusterId    string
 	HCPNamespace string
-	Reconciler   HyperShiftLogForwarderReconciler
+	Context      context.Context
+	CancelFunc   context.CancelFunc
 }
 
 // HyperShiftLogForwarderReconciler reconciles a HyperShiftLogForwarder object
