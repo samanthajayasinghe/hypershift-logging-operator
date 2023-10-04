@@ -31,10 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	ocroutev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
+	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 var (
@@ -56,6 +59,7 @@ var (
 		Reason:  "NonSupportResourceName",
 		Message: fmt.Sprintf("The name of the HyperShiftLogForwarder must be '%s'", consts.SingletonName),
 	}
+	hostedClusters = map[string]HostedCluster{}
 )
 
 // HostedCluster keeps hosted cluster info
@@ -82,12 +86,23 @@ type HyperShiftLogForwarderReconciler struct {
 //+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders/finalizers,verbs=update
 
 // NewLogForwarderReconcilerReconciler ...
-func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[string]HostedCluster) (*HyperShiftLogForwarderReconciler, error) {
+func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager) (*HyperShiftLogForwarderReconciler, error) {
 	r := HyperShiftLogForwarderReconciler{
 		Scheme: mgr.GetScheme(),
 	}
 
+	//Adding HyperShiftLogForwarder controller for all active hosted clusters
+	if err := r.initHostedClusters(mgr); err != nil {
+		r.log.Error(err, "Init hosted clusters")
+	}
+
 	for _, hostedCluster := range hostedClusters {
+
+		//setting up scheme
+		clusterScheme := hostedCluster.Cluster.GetScheme()
+		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
+		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
+
 		r := HyperShiftLogForwarderReconciler{
 			Client:       hostedCluster.Cluster.GetClient(),
 			Scheme:       mgr.GetScheme(),
@@ -95,6 +110,7 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[st
 			HCPNamespace: hostedCluster.HCPNamespace,
 		}
 
+		//init submanager
 		leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.ClusterName)
 		mgrHostedCluster, err := ctrl.NewManager(hostedCluster.Cluster.GetConfig(), ctrl.Options{
 			Scheme:                 r.Scheme,
@@ -103,8 +119,8 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[st
 			MetricsBindAddress:     "0",
 			LeaderElectionID:       leaderElectionID,
 		})
-
 		go func() {
+
 			err = ctrl.NewControllerManagedBy(mgrHostedCluster).
 				Named(hostedCluster.ClusterName).
 				For(&v1alpha1.HyperShiftLogForwarder{}).
@@ -302,4 +318,47 @@ func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) er
 		For(&hyperv1beta1.HostedCluster{}).
 		// WithEventFilter(eventPredicates()).
 		Complete(r)
+}
+
+// GetHostedClusters returns HostedControlPlane List
+func (r *HyperShiftLogForwarderReconciler) initHostedClusters(mgr ctrl.Manager) error {
+	c, err := client.New(mgr.GetConfig(), client.Options{})
+	utilruntime.Must(hyperv1beta1.AddToScheme(c.Scheme()))
+	utilruntime.Must(ocroutev1.AddToScheme(c.Scheme()))
+	activeHcpList, err := hostedcluster.GetHostedClusters(c, context.Background(), true, r.log)
+
+	if err != nil {
+		return err
+	}
+
+	for _, hcp := range activeHcpList {
+
+		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
+
+		r.log.Info("connecting hosted cluster", "name", hcp.Name)
+		restConfig, err := hostedcluster.BuildGuestKubeConfig(c, hcpNamespace, r.log)
+		if err != nil {
+			r.log.Error(err, "getting guest cluster kubeconfig")
+		}
+
+		hsCluster, err := cluster.New(restConfig)
+		if err != nil {
+			r.log.Error(err, "creating guest cluster kubeconfig")
+		}
+
+		ctx := context.Background()
+		ctx, cancelFunc := context.WithCancel(ctx)
+
+		hostedCluster := HostedCluster{
+			Cluster:      hsCluster,
+			HCPNamespace: hcpNamespace,
+			ClusterName:  hcp.Name,
+			Context:      &ctx,
+			CancelFunc:   &cancelFunc,
+		}
+		hostedClusters[hcp.Name] = hostedCluster
+
+	}
+
+	return nil
 }
