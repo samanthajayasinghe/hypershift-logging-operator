@@ -29,7 +29,7 @@ spec:
           key: node-role.kubernetes.io/infra
           effect: NoSchedule
       containers:
-        - name: logging-forwarder-operator
+        - name: hypershift-logging-operator
           image: # TODO: Fill me out
           imagePullPolicy: Always
           resources:
