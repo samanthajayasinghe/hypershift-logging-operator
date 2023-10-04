@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: logging-forwarder-operator
+  name: hypershift-logging-operator
 rules:
   - apiGroups:
       - hypershift.openshift.io
