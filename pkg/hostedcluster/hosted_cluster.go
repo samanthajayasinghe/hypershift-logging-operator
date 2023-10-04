@@ -6,10 +6,12 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
+	ocroutev1 "github.com/openshift/api/route/v1"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,6 +58,9 @@ func GetHostedClusters(
 	onlyActive bool,
 	log logr.Logger,
 ) ([]hyperv1beta1.HostedCluster, error) {
+
+	utilruntime.Must(hyperv1beta1.AddToScheme(c.Scheme()))
+	utilruntime.Must(ocroutev1.AddToScheme(c.Scheme()))
 
 	hcList := new(hyperv1beta1.HostedClusterList)
 	if err := c.List(ctx, hcList, &client.ListOptions{Namespace: ""}); err != nil {

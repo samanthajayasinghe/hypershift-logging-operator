@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	ocroutev1 "github.com/openshift/api/route/v1"
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
@@ -91,44 +90,69 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager) (*HyperShiftLogForwar
 		Scheme: mgr.GetScheme(),
 	}
 
-	//Adding HyperShiftLogForwarder controller for all active hosted clusters
-	if err := r.initHostedClusters(mgr); err != nil {
-		r.log.Error(err, "Init hosted clusters")
-	}
+	c, err := client.New(mgr.GetConfig(), client.Options{})
+	activeHcpList, err := hostedcluster.GetHostedClusters(c, context.Background(), true, r.log)
+	for _, hcp := range activeHcpList {
+		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
 
-	for _, hostedCluster := range hostedClusters {
-
-		//setting up scheme
-		clusterScheme := hostedCluster.Cluster.GetScheme()
-		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
-		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
-
-		r := HyperShiftLogForwarderReconciler{
-			Client:       hostedCluster.Cluster.GetClient(),
-			Scheme:       mgr.GetScheme(),
-			MCClient:     mgr.GetClient(),
-			HCPNamespace: hostedCluster.HCPNamespace,
+		r.log.Info("connecting hosted cluster", "name", hcp.Name)
+		restConfig, err := hostedcluster.BuildGuestKubeConfig(c, hcpNamespace, r.log)
+		if err != nil {
+			r.log.Error(err, "getting guest cluster kubeconfig")
 		}
 
-		//init submanager
-		leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.ClusterName)
-		mgrHostedCluster, err := ctrl.NewManager(hostedCluster.Cluster.GetConfig(), ctrl.Options{
-			Scheme:                 r.Scheme,
-			HealthProbeBindAddress: "",
-			LeaderElection:         false,
-			MetricsBindAddress:     "0",
-			LeaderElectionID:       leaderElectionID,
-		})
+		hsCluster, err := cluster.New(restConfig)
+		if err != nil {
+			r.log.Error(err, "creating guest cluster kubeconfig")
+		}
+
+		//setting up scheme
+		clusterScheme := hsCluster.GetScheme()
+		//utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
+		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
+
+		ctx := context.Background()
+		ctx, cancelFunc := context.WithCancel(ctx)
+
 		go func() {
+			hostedCluster := HostedCluster{
+				Cluster:      hsCluster,
+				HCPNamespace: hcpNamespace,
+				ClusterName:  hcp.Name,
+				Context:      &ctx,
+				CancelFunc:   &cancelFunc,
+			}
+			hostedClusters[hcp.Name] = hostedCluster
+
+			r := HyperShiftLogForwarderReconciler{
+				Client:       hsCluster.GetClient(),
+				Scheme:       mgr.GetScheme(),
+				MCClient:     mgr.GetClient(),
+				HCPNamespace: hcpNamespace,
+			}
+
+			//init submanager
+			leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hcp.Name)
+			mgrHostedCluster, err := ctrl.NewManager(restConfig, ctrl.Options{
+				Scheme:                 clusterScheme,
+				HealthProbeBindAddress: "",
+				LeaderElection:         false,
+				MetricsBindAddress:     "0",
+				LeaderElectionID:       leaderElectionID,
+			})
+
+			if err != nil {
+				r.log.Error(err, "problem creating new manager", "Name", hcp.Name)
+			}
 
 			err = ctrl.NewControllerManagedBy(mgrHostedCluster).
-				Named(hostedCluster.ClusterName).
+				Named(hcp.Name).
 				For(&v1alpha1.HyperShiftLogForwarder{}).
 				Complete(&r)
 
-			r.log.Info("starting HostedCluster manager", "Name", hostedCluster.ClusterName)
-			if err := mgrHostedCluster.Start(*hostedCluster.Context); err != nil {
-				r.log.Error(err, "problem running HostedCluster manager", "Name", hostedCluster.ClusterName)
+			r.log.Info("starting HostedCluster manager", "Name", hcp.Name)
+			if err := mgrHostedCluster.Start(ctx); err != nil {
+				r.log.Error(err, "problem running HostedCluster manager", "Name", hcp.Name)
 			}
 
 		}()
@@ -137,6 +161,10 @@ func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager) (*HyperShiftLogForwar
 
 			return &r, err
 		}
+	}
+	if err != nil {
+
+		return &r, err
 	}
 
 	return &r, nil
@@ -318,47 +346,4 @@ func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) er
 		For(&hyperv1beta1.HostedCluster{}).
 		// WithEventFilter(eventPredicates()).
 		Complete(r)
-}
-
-// GetHostedClusters returns HostedControlPlane List
-func (r *HyperShiftLogForwarderReconciler) initHostedClusters(mgr ctrl.Manager) error {
-	c, err := client.New(mgr.GetConfig(), client.Options{})
-	utilruntime.Must(hyperv1beta1.AddToScheme(c.Scheme()))
-	utilruntime.Must(ocroutev1.AddToScheme(c.Scheme()))
-	activeHcpList, err := hostedcluster.GetHostedClusters(c, context.Background(), true, r.log)
-
-	if err != nil {
-		return err
-	}
-
-	for _, hcp := range activeHcpList {
-
-		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
-
-		r.log.Info("connecting hosted cluster", "name", hcp.Name)
-		restConfig, err := hostedcluster.BuildGuestKubeConfig(c, hcpNamespace, r.log)
-		if err != nil {
-			r.log.Error(err, "getting guest cluster kubeconfig")
-		}
-
-		hsCluster, err := cluster.New(restConfig)
-		if err != nil {
-			r.log.Error(err, "creating guest cluster kubeconfig")
-		}
-
-		ctx := context.Background()
-		ctx, cancelFunc := context.WithCancel(ctx)
-
-		hostedCluster := HostedCluster{
-			Cluster:      hsCluster,
-			HCPNamespace: hcpNamespace,
-			ClusterName:  hcp.Name,
-			Context:      &ctx,
-			CancelFunc:   &cancelFunc,
-		}
-		hostedClusters[hcp.Name] = hostedCluster
-
-	}
-
-	return nil
 }

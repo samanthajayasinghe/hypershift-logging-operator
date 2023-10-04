@@ -35,7 +35,7 @@ import (
 
 var hostedClusters = map[string]hypershiftlogforwarder.HostedCluster{}
 
-// ClusterLogForwarderTemplateReconciler reconciles a ClusterLogForwarderTemplate object
+// HostedClusterReconciler reconciles a HostedCluster object
 type HostedClusterReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -43,12 +43,16 @@ type HostedClusterReconciler struct {
 	Mgr    ctrl.Manager
 }
 
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=clusterlogforwardertemplates/finalizers,verbs=update
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
+// +kubebuilder:rbac:groups=hypershift.openshift.io,resources=hostedclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=hypershift.openshift.io,resources=hostedclusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=hypershift.openshift.io,resources=hostedclusters/finalizers,verbs=update
+// Reconcile actions for newly created hosted clusters and deleted hosted clusters.
+//
+// If it's a new hosted cluster, Reconciler creates a new manager
+// with hypershift-log-forwarder controller and starts the sub manager.
+//
+// If it's a deleted cluster, Reconciler cancel the sub-manager context,
+// which leads to stopping the hypershift-log-forwarder controller and sub-manager
 func (r *HostedClusterReconciler) Reconcile(
 	ctx context.Context,
 	req ctrl.Request,
@@ -95,21 +99,26 @@ func (r *HostedClusterReconciler) Reconcile(
 			utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
 			utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
 
-			hostedCluster := hypershiftlogforwarder.HostedCluster{
+			ctx := context.Background()
+			ctx, cancelFunc := context.WithCancel(ctx)
+
+			newHostedCluster := hypershiftlogforwarder.HostedCluster{
 				Cluster:      hsCluster,
 				HCPNamespace: hcpNamespace,
 				ClusterName:  hostedCluster.Name,
+				Context:      &ctx,
+				CancelFunc:   &cancelFunc,
 			}
-			hostedClusters[hcpName] = hostedCluster
+			hostedClusters[hcpName] = newHostedCluster
 			rhc := hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
-				Client:       hostedCluster.Cluster.GetClient(),
+				Client:       hsCluster.GetClient(),
 				Scheme:       r.Scheme,
 				MCClient:     r.Client,
-				HCPNamespace: hostedCluster.HCPNamespace,
+				HCPNamespace: hcpNamespace,
 			}
 
-			leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.ClusterName)
-			mgrHostedCluster, err := ctrl.NewManager(hostedCluster.Cluster.GetConfig(), ctrl.Options{
+			leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.Name)
+			mgrHostedCluster, err := ctrl.NewManager(newHostedCluster.Cluster.GetConfig(), ctrl.Options{
 				Scheme:                 r.Scheme,
 				HealthProbeBindAddress: "",
 				LeaderElection:         false,
@@ -119,13 +128,13 @@ func (r *HostedClusterReconciler) Reconcile(
 
 			go func() {
 				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
-					Named(hostedCluster.ClusterName).
+					Named(hostedCluster.Name).
 					For(&v1alpha1.HyperShiftLogForwarder{}).
 					Complete(&rhc)
 
-				r.log.Info("starting HostedCluster manager", "Name", hostedCluster.ClusterName)
-				if err := mgrHostedCluster.Start(*hostedCluster.Context); err != nil {
-					r.log.Error(err, "problem running HostedCluster manager", "Name", hostedCluster.ClusterName)
+				r.log.Info("starting HostedCluster manager", "Name", hostedCluster.Name)
+				if err := mgrHostedCluster.Start(ctx); err != nil {
+					r.log.Error(err, "problem running HostedCluster manager", "Name", hostedCluster.Name)
 				}
 
 			}()
