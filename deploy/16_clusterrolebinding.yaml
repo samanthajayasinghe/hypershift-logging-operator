@@ -4,7 +4,7 @@ metadata:
   name: hypershift-logging-operator
 subjects:
   - kind: ServiceAccount
-    name: logging-forwarder-operator
+    name: hypershift-logging-operator
     namespace: openshift-hypershift-logging-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
