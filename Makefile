@@ -45,7 +45,7 @@ build-package-push:
 .PHONY: build-package
 build-package:
 		$(CONTAINER_ENGINE) build -t $(PKO_IMG):$(PKO_IMAGETAG) -f $(join $(CURDIR),/hack/hypershift/package/hypershift-logging-operator.Containerfile) . && \
-		$(CONTAINER_ENGINE) tag $(PKO_IMG):$(PKO_IMAGETAG) $(IMG):latest
+		$(CONTAINER_ENGINE) tag $(PKO_IMG):$(PKO_IMAGETAG) $(PKO_IMG):latest
 
 .PHONY: skopeo-push
 skopeo-push-package:
