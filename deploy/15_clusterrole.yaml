@@ -1,0 +1,68 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hypershift-logging-operator
+rules:
+  - apiGroups:
+      - hypershift.openshift.io
+    resources:
+      - hostedclusters
+      - hostedcontrolplanes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - logging.openshift.io
+    resources:
+      - clusterlogforwarders
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - route.openshift.io
+    resources:
+      - routes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - "logging.managed.openshift.io"
+    resources:
+      - hypershiftlogforwarders
+      - clusterlogforwardertemplates
+    verbs:
+      - get
+      - list
+      - watch    
+  - apiGroups:
+      - logging.openshift.io
+    resources:
+      - clusterlogforwarders/status
+    verbs:
+      - get   
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - services/finalizers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create

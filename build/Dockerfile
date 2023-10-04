@@ -32,7 +32,7 @@ COPY --from=builder /workspace/build/_output/bin/* /usr/local/bin/
 COPY build/bin /usr/local/bin
 RUN /usr/local/bin/user_setup
 
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
+ENTRYPOINT ["/usr/local/bin/hypershift-logging-operator"]
 
 USER ${USER_UID}
 
