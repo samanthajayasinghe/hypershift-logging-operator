@@ -28,6 +28,7 @@ import (
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
+	"github.com/openshift/hypershift-logging-operator/pkg/consts"
 	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -124,6 +125,7 @@ func (r *HostedClusterReconciler) Reconcile(
 				LeaderElection:         false,
 				MetricsBindAddress:     "0",
 				LeaderElectionID:       leaderElectionID,
+				Namespace:              consts.HyperShiftLogForwarderNamespace,
 			})
 
 			//Adding hosted cluster to sub manger

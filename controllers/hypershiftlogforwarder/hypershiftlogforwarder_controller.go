@@ -34,7 +34,6 @@ import (
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
-	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 )
 
 var (
@@ -56,7 +55,12 @@ var (
 		Reason:  "NonSupportResourceName",
 		Message: fmt.Sprintf("The name of the HyperShiftLogForwarder must be '%s'", consts.SingletonName),
 	}
-	hostedClusters = map[string]HostedCluster{}
+	incorrectNamespaceCondition = loggingv1.Condition{
+		Type:    "Degraded",
+		Status:  "True",
+		Reason:  "NonSupportNamespace",
+		Message: fmt.Sprintf("The namespace of the HyperShiftLogForwarder must be '%s'", consts.HyperShiftLogForwarderNamespace),
+	}
 )
 
 // HostedCluster keeps hosted cluster info
@@ -101,6 +105,16 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	if req.NamespacedName.Name != consts.SingletonName {
 		log.V(3).Info("hyperShiftLogForwarder is singleton and name should be 'instance'")
 		instance.Status.Conditions.SetCondition(incorrectInstanceNameCondition)
+		err = r.Status().Update(ctx, instance)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if req.NamespacedName.Name != consts.HyperShiftLogForwarderNamespace {
+		log.V(3).Info("hyperShiftLogForwarder is in the illegal namespace.HyperShiftLogForwarder should deployed to openshift-logging namespace")
+		instance.Status.Conditions.SetCondition(incorrectNamespaceCondition)
 		err = r.Status().Update(ctx, instance)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -247,11 +261,4 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 		}
 	}
 	return nil
-}
-
-func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&hyperv1beta1.HostedCluster{}).
-		// WithEventFilter(eventPredicates()).
-		Complete(r)
 }
