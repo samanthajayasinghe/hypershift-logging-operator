@@ -34,9 +34,7 @@ import (
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
-	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
 var (
@@ -67,8 +65,8 @@ type HostedCluster struct {
 	ClusterId    string
 	ClusterName  string
 	HCPNamespace string
-	Context      *context.Context
-	CancelFunc   *context.CancelFunc
+	Context      context.Context
+	CancelFunc   context.CancelFunc
 }
 
 // HyperShiftLogForwarderReconciler reconciles a HyperShiftLogForwarder object
@@ -78,96 +76,6 @@ type HyperShiftLogForwarderReconciler struct {
 	MCClient     client.Client
 	HCPNamespace string
 	log          logr.Logger
-}
-
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders/finalizers,verbs=update
-
-// NewLogForwarderReconcilerReconciler ...
-func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager) (*HyperShiftLogForwarderReconciler, error) {
-	r := HyperShiftLogForwarderReconciler{
-		Scheme: mgr.GetScheme(),
-	}
-
-	c, err := client.New(mgr.GetConfig(), client.Options{})
-	activeHcpList, err := hostedcluster.GetHostedClusters(c, context.Background(), true, r.log)
-	for _, hcp := range activeHcpList {
-		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
-
-		r.log.Info("connecting hosted cluster", "name", hcp.Name)
-		restConfig, err := hostedcluster.BuildGuestKubeConfig(c, hcpNamespace, r.log)
-		if err != nil {
-			r.log.Error(err, "getting guest cluster kubeconfig")
-		}
-
-		hsCluster, err := cluster.New(restConfig)
-		if err != nil {
-			r.log.Error(err, "creating guest cluster kubeconfig")
-		}
-
-		//setting up scheme
-		clusterScheme := hsCluster.GetScheme()
-		//utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
-		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
-
-		ctx := context.Background()
-		ctx, cancelFunc := context.WithCancel(ctx)
-
-		go func() {
-			hostedCluster := HostedCluster{
-				Cluster:      hsCluster,
-				HCPNamespace: hcpNamespace,
-				ClusterName:  hcp.Name,
-				Context:      &ctx,
-				CancelFunc:   &cancelFunc,
-			}
-			hostedClusters[hcp.Name] = hostedCluster
-
-			r := HyperShiftLogForwarderReconciler{
-				Client:       hsCluster.GetClient(),
-				Scheme:       mgr.GetScheme(),
-				MCClient:     mgr.GetClient(),
-				HCPNamespace: hcpNamespace,
-			}
-
-			//init submanager
-			leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hcp.Name)
-			mgrHostedCluster, err := ctrl.NewManager(restConfig, ctrl.Options{
-				Scheme:                 clusterScheme,
-				HealthProbeBindAddress: "",
-				LeaderElection:         false,
-				MetricsBindAddress:     "0",
-				LeaderElectionID:       leaderElectionID,
-			})
-
-			if err != nil {
-				r.log.Error(err, "problem creating new manager", "Name", hcp.Name)
-			}
-
-			err = ctrl.NewControllerManagedBy(mgrHostedCluster).
-				Named(hcp.Name).
-				For(&v1alpha1.HyperShiftLogForwarder{}).
-				Complete(&r)
-
-			r.log.Info("starting HostedCluster manager", "Name", hcp.Name)
-			if err := mgrHostedCluster.Start(ctx); err != nil {
-				r.log.Error(err, "problem running HostedCluster manager", "Name", hcp.Name)
-			}
-
-		}()
-
-		if err != nil {
-
-			return &r, err
-		}
-	}
-	if err != nil {
-
-		return &r, err
-	}
-
-	return &r, nil
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

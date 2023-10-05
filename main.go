@@ -34,7 +34,6 @@ import (
 	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
 
 	hostedclustercontroller "github.com/openshift/hypershift-logging-operator/controllers/hostedcluster"
-	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
 
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
@@ -101,14 +100,6 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterLogForwarderTemplate")
-		os.Exit(1)
-	}
-
-	//Adding HyperShiftLogForwarder controller
-	_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr)
-
-	if err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "HyperShiftLogForwarder")
 		os.Exit(1)
 	}
 

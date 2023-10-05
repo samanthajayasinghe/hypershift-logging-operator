@@ -77,10 +77,9 @@ func (r *HostedClusterReconciler) Reconcile(
 		return ctrl.Result{}, err
 	}
 
-	currentHostedCluster, exist := hostedClusters[hostedCluster.Name]
+	_, exist := hostedClusters[req.NamespacedName.Name]
 
 	hcpNamespace := fmt.Sprintf("%s-%s", hostedCluster.Namespace, hostedCluster.Name)
-	hcpName := hostedCluster.Name
 
 	if !exist {
 		// check hosted cluster status, if it's new created and ready, start the reconcile
@@ -106,25 +105,29 @@ func (r *HostedClusterReconciler) Reconcile(
 				Cluster:      hsCluster,
 				HCPNamespace: hcpNamespace,
 				ClusterName:  hostedCluster.Name,
-				Context:      &ctx,
-				CancelFunc:   &cancelFunc,
+				Context:      ctx,
+				CancelFunc:   cancelFunc,
 			}
-			hostedClusters[hcpName] = newHostedCluster
+			hostedClusters[req.NamespacedName.Name] = newHostedCluster
 			rhc := hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
 				Client:       hsCluster.GetClient(),
-				Scheme:       r.Scheme,
+				Scheme:       clusterScheme,
 				MCClient:     r.Client,
 				HCPNamespace: hcpNamespace,
 			}
 
 			leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.Name)
-			mgrHostedCluster, err := ctrl.NewManager(newHostedCluster.Cluster.GetConfig(), ctrl.Options{
-				Scheme:                 r.Scheme,
+
+			mgrHostedCluster, err := ctrl.NewManager(restConfig, ctrl.Options{
+				Scheme:                 clusterScheme,
 				HealthProbeBindAddress: "",
 				LeaderElection:         false,
 				MetricsBindAddress:     "0",
 				LeaderElectionID:       leaderElectionID,
 			})
+
+			//Adding hosted cluster to sub manger
+			mgrHostedCluster.Add(hsCluster)
 
 			go func() {
 				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
@@ -146,7 +149,8 @@ func (r *HostedClusterReconciler) Reconcile(
 		if !found {
 			//if it's deleted, stop the reconcile
 			r.log.V(1).Info("testing", "found", found)
-			cancelFunc := *currentHostedCluster.CancelFunc
+
+			cancelFunc := hostedClusters[req.NamespacedName.Name].CancelFunc
 			cancelFunc()
 			r.log.V(1).Info("finished context")
 		}
