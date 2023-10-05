@@ -7,7 +7,7 @@ import (
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
-	"github.com/openshift/hypershift-logging-operator/pkg/consts"
+	"github.com/openshift/hypershift-logging-operator/pkg/constants"
 )
 
 // CleanUpClusterLogForwarder removes all the user managed forwarder rules from CLF
@@ -46,8 +46,8 @@ func BuildInputsFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 
 	if len(template.Spec.Template.Inputs) > 0 {
 		for _, input := range template.Spec.Template.Inputs {
-			if !strings.Contains(input.Name, consts.ProviderManagedRuleNamePrefix) {
-				input.Name = consts.ProviderManagedRuleNamePrefix + "-" + input.Name
+			if !strings.Contains(input.Name, constants.ProviderManagedRuleNamePrefix) {
+				input.Name = constants.ProviderManagedRuleNamePrefix + "-" + input.Name
 			}
 			clf.Spec.Inputs = append(clf.Spec.Inputs, input)
 		}
@@ -62,8 +62,8 @@ func BuildOutputsFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 
 	if len(template.Spec.Template.Outputs) > 0 {
 		for _, output := range template.Spec.Template.Outputs {
-			if !strings.Contains(output.Name, consts.ProviderManagedRuleNamePrefix) {
-				output.Name = consts.ProviderManagedRuleNamePrefix + "-" + output.Name
+			if !strings.Contains(output.Name, constants.ProviderManagedRuleNamePrefix) {
+				output.Name = constants.ProviderManagedRuleNamePrefix + "-" + output.Name
 			}
 			clf.Spec.Outputs = append(clf.Spec.Outputs, output)
 		}
@@ -82,8 +82,8 @@ func BuildPipelinesFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 			if ppl.Name == "" {
 				ppl.Name = autoGenName + strconv.Itoa(x)
 			}
-			if !strings.Contains(ppl.Name, consts.ProviderManagedRuleNamePrefix) {
-				ppl.Name = consts.ProviderManagedRuleNamePrefix + "-" + ppl.Name
+			if !strings.Contains(ppl.Name, constants.ProviderManagedRuleNamePrefix) {
+				ppl.Name = constants.ProviderManagedRuleNamePrefix + "-" + ppl.Name
 			}
 			clf.Spec.Pipelines = append(clf.Spec.Pipelines, ppl)
 		}
@@ -96,8 +96,8 @@ func BuildPipelinesFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 func BuildInputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
 	if len(hlf.Spec.Inputs) > 0 {
 		for _, input := range hlf.Spec.Inputs {
-			if !strings.Contains(input.Name, consts.CustomerManagedRuleNamePrefix) {
-				input.Name = consts.CustomerManagedRuleNamePrefix + "-" + input.Name
+			if !strings.Contains(input.Name, constants.CustomerManagedRuleNamePrefix) {
+				input.Name = constants.CustomerManagedRuleNamePrefix + "-" + input.Name
 			}
 			clf.Spec.Inputs = append(clf.Spec.Inputs, input)
 		}
@@ -109,8 +109,8 @@ func BuildInputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.Clu
 func BuildOutputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
 	if len(hlf.Spec.Outputs) > 0 {
 		for _, output := range hlf.Spec.Outputs {
-			if !strings.Contains(output.Name, consts.CustomerManagedRuleNamePrefix) {
-				output.Name = consts.CustomerManagedRuleNamePrefix + "-" + output.Name
+			if !strings.Contains(output.Name, constants.CustomerManagedRuleNamePrefix) {
+				output.Name = constants.CustomerManagedRuleNamePrefix + "-" + output.Name
 			}
 			clf.Spec.Outputs = append(clf.Spec.Outputs, output)
 		}
@@ -127,8 +127,8 @@ func BuildPipelinesFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.
 			if ppl.Name == "" {
 				ppl.Name = autoGenName + strconv.Itoa(i)
 			}
-			if !strings.Contains(ppl.Name, consts.CustomerManagedRuleNamePrefix) {
-				ppl.Name = consts.CustomerManagedRuleNamePrefix + "-" + ppl.Name
+			if !strings.Contains(ppl.Name, constants.CustomerManagedRuleNamePrefix) {
+				ppl.Name = constants.CustomerManagedRuleNamePrefix + "-" + ppl.Name
 			}
 			clf.Spec.Pipelines = append(clf.Spec.Pipelines, ppl)
 		}

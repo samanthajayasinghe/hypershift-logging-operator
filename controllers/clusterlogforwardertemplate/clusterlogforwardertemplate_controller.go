@@ -34,7 +34,7 @@ import (
 
 	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
-	"github.com/openshift/hypershift-logging-operator/pkg/consts"
+	"github.com/openshift/hypershift-logging-operator/pkg/constants"
 	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 )
 
@@ -57,8 +57,8 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 ) (ctrl.Result, error) {
 	r.log = ctrllog.FromContext(ctx).WithName("controller")
 
-	if req.NamespacedName.Name != consts.SingletonName {
-		err := fmt.Errorf("clusterLogForwarderTemplate name must be '%s'", consts.SingletonName)
+	if req.NamespacedName.Name != constants.SingletonName {
+		err := fmt.Errorf("clusterLogForwarderTemplate name must be '%s'", constants.SingletonName)
 		r.log.V(1).Error(err, "")
 		return ctrl.Result{}, err
 	}
@@ -79,14 +79,14 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 
 	if !template.DeletionTimestamp.IsZero() {
 		deletion = true
-		controllerutil.RemoveFinalizer(template, consts.ManagedLoggingFinalizer)
+		controllerutil.RemoveFinalizer(template, constants.ManagedLoggingFinalizer)
 		err = r.Client.Update(ctx, template)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
 		deletion = false
-		controllerutil.AddFinalizer(template, consts.ManagedLoggingFinalizer)
+		controllerutil.AddFinalizer(template, constants.ManagedLoggingFinalizer)
 		err = r.Client.Update(ctx, template)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -115,7 +115,7 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 			}
 			// If CLFT is being deleted, and CLF found, clean up the CLF with all the CLFT entries
 			if found {
-				clusterlogforwarder.CleanUpClusterLogForwarder(clf, consts.ProviderManagedRuleNamePrefix)
+				clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.ProviderManagedRuleNamePrefix)
 				err = r.Update(ctx, clf)
 				if err != nil {
 					return ctrl.Result{}, err
@@ -131,7 +131,7 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 			//TODO: Need to fix the serviceaccount name here once we know how to use it
 			//clusterLogForwarder.Spec.ServiceAccountName = template.Spec.Template.ServiceAccountName
 
-			clusterlogforwarder.CleanUpClusterLogForwarder(clf, consts.ProviderManagedRuleNamePrefix)
+			clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.ProviderManagedRuleNamePrefix)
 			clf = clusterlogforwarder.BuildInputsFromTemplate(template, clf)
 			clf = clusterlogforwarder.BuildOutputsFromTemplate(template, clf)
 			clf = clusterlogforwarder.BuildPipelinesFromTemplate(template, clf)
