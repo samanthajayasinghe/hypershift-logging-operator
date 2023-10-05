@@ -30,12 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/consts"
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 )
 
 var (
@@ -57,13 +56,17 @@ var (
 		Reason:  "NonSupportResourceName",
 		Message: fmt.Sprintf("The name of the HyperShiftLogForwarder must be '%s'", consts.SingletonName),
 	}
+	hostedClusters = map[string]HostedCluster{}
 )
 
 // HostedCluster keeps hosted cluster info
 type HostedCluster struct {
 	Cluster      cluster.Cluster
 	ClusterId    string
+	ClusterName  string
 	HCPNamespace string
+	Context      context.Context
+	CancelFunc   context.CancelFunc
 }
 
 // HyperShiftLogForwarderReconciler reconciles a HyperShiftLogForwarder object
@@ -75,46 +78,12 @@ type HyperShiftLogForwarderReconciler struct {
 	log          logr.Logger
 }
 
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=logging.managed.openshift.io,resources=hypershiftlogforwarders/finalizers,verbs=update
-
-// NewLogForwarderReconcilerReconciler ...
-func NewHyperShiftLogForwarderReconciler(mgr ctrl.Manager, hostedClusters map[string]HostedCluster) (*HyperShiftLogForwarderReconciler, error) {
-	r := HyperShiftLogForwarderReconciler{
-		Scheme: mgr.GetScheme(),
-	}
-
-	for _, hostedCluster := range hostedClusters {
-		r := HyperShiftLogForwarderReconciler{
-			Client:       hostedCluster.Cluster.GetClient(),
-			Scheme:       mgr.GetScheme(),
-			MCClient:     mgr.GetClient(),
-			HCPNamespace: hostedCluster.HCPNamespace,
-		}
-
-		err := ctrl.NewControllerManagedBy(mgr).
-			For(&v1alpha1.HyperShiftLogForwarder{}).
-			Watches(
-				source.NewKindWithCache(&v1alpha1.HyperShiftLogForwarder{}, hostedCluster.Cluster.GetCache()),
-				&handler.EnqueueRequestForObject{},
-			).
-			Complete(&r)
-		if err != nil {
-
-			return &r, err
-		}
-	}
-
-	return &r, nil
-}
-
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
 	log := logr.Logger{}.WithName("hyperShiftLogForwarder-controller")
-
+	log.V(1).Info("start reconcile", "Name", req.NamespacedName)
 	instance := &v1alpha1.HyperShiftLogForwarder{}
 
 	if r.HCPNamespace == "" {
@@ -278,4 +247,11 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 		}
 	}
 	return nil
+}
+
+func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&hyperv1beta1.HostedCluster{}).
+		// WithEventFilter(eventPredicates()).
+		Complete(r)
 }

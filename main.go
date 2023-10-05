@@ -17,41 +17,31 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
-	"fmt"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	ocroutev1 "github.com/openshift/api/route/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
-	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 
-	//+kubebuilder:scaffold:imports
-
-	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
+	hostedclustercontroller "github.com/openshift/hypershift-logging-operator/controllers/hostedcluster"
 
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 )
 
 var (
-	scheme         = runtime.NewScheme()
-	setupLog       = ctrl.Log.WithName("setup")
-	hostedClusters = map[string]hypershiftlogforwarder.HostedCluster{}
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -104,6 +94,7 @@ func main() {
 
 	setupLog.Info("Registering Components.")
 
+	//Adding ClusterLogForwarderTemplate controller
 	if err = (&clusterlogforwardertemplate.ClusterLogForwarderTemplateReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -112,20 +103,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := initHostedClusters(mgr); err != nil {
-		setupLog.Error(err, "Init hosted clusters")
+	//Adding HostedCluster controller
+	if err = (&hostedclustercontroller.HostedClusterReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Mgr:    mgr,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "HostedCluster")
+		os.Exit(1)
 	}
-
-	for _, hsCluster := range hostedClusters {
-		clusterScheme := hsCluster.Cluster.GetScheme()
-		utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
-		utilruntime.Must(v1alpha1.AddToScheme(clusterScheme))
-		mgr.Add(hsCluster.Cluster)
-	}
-
-	_, err = hypershiftlogforwarder.NewHyperShiftLogForwarderReconciler(mgr, hostedClusters)
-
-	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -136,46 +122,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	//Start the main manager
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-// GetHostedClusters returns HostedControlPlane List
-func initHostedClusters(mgr ctrl.Manager) error {
-	c, err := client.New(config.GetConfigOrDie(), client.Options{})
-	utilruntime.Must(hyperv1beta1.AddToScheme(c.Scheme()))
-	utilruntime.Must(ocroutev1.AddToScheme(c.Scheme()))
-	activeHcpList, err := hostedcluster.GetHostedClusters(c, context.Background(), true, setupLog)
-
-	if err != nil {
-		return err
-	}
-
-	for _, hcp := range activeHcpList {
-
-		hcpNamespace := fmt.Sprintf("%s-%s", hcp.Namespace, hcp.Name)
-
-		setupLog.Info("connecting hosted cluster", "name", hcp.Name)
-		restConfig, err := hostedcluster.BuildGuestKubeConfig(c, hcpNamespace, setupLog)
-		if err != nil {
-			setupLog.Error(err, "getting guest cluster kubeconfig")
-		}
-
-		hsCluster, err := cluster.New(restConfig)
-		if err != nil {
-			setupLog.Error(err, "creating guest cluster kubeconfig")
-		}
-
-		hostedCluster := hypershiftlogforwarder.HostedCluster{
-			Cluster:      hsCluster,
-			HCPNamespace: hcpNamespace,
-		}
-		hostedClusters[hcp.Name] = hostedCluster
-
-	}
-
-	return nil
 }
