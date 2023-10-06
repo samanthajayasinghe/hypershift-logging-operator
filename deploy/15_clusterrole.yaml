@@ -40,7 +40,10 @@ rules:
     verbs:
       - get
       - list
-      - watch    
+      - watch
+      - create
+      - delete
+      - update   
   - apiGroups:
       - logging.openshift.io
     resources:
@@ -60,6 +63,13 @@ rules:
       - patch
       - update
       - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
   - apiGroups:
       - ""
     resources:
