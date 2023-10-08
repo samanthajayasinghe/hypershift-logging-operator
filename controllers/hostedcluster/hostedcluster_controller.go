@@ -23,8 +23,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
@@ -34,7 +32,10 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
-var hostedClusters = map[string]hypershiftlogforwarder.HostedCluster{}
+var (
+	clusterScheme  = runtime.NewScheme()
+	hostedClusters = map[string]hypershiftlogforwarder.HostedCluster{}
+)
 
 // HostedClusterReconciler reconciles a HostedCluster object
 type HostedClusterReconciler struct {
@@ -62,12 +63,6 @@ func (r *HostedClusterReconciler) Reconcile(
 	log := logr.Logger{}.WithName("hostedcluster-controller")
 
 	hostedCluster := &hyperv1beta1.HostedCluster{}
-	if err := r.Get(ctx, req.NamespacedName, hostedCluster); err != nil {
-		// Ignore not-found errors, since they can't be fixed by an immediate
-		// requeue (we'll need to wait for a new notification).
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
 	found := false
 	err := r.Get(ctx, req.NamespacedName, hostedCluster)
 	if err != nil && errors.IsNotFound(err) {
@@ -81,19 +76,22 @@ func (r *HostedClusterReconciler) Reconcile(
 	_, exist := hostedClusters[req.NamespacedName.Name]
 
 	hcpNamespace := fmt.Sprintf("%s-%s", hostedCluster.Namespace, hostedCluster.Name)
+	isReadyCluster := hostedcluster.IsReadyHostedCluster(*hostedCluster)
 
 	if !exist {
 		// check hosted cluster status, if it's new created and ready, start the reconcile
-		newReadyCluster := hostedcluster.IsReadyHostedCluster(*hostedCluster)
-		if newReadyCluster {
+
+		if isReadyCluster {
 			restConfig, err := hostedcluster.BuildGuestKubeConfig(r.Client, hcpNamespace, r.log)
 			if err != nil {
 				log.Error(err, "getting guest cluster kubeconfig")
+				return ctrl.Result{}, err
 			}
 
 			hsCluster, err := cluster.New(restConfig)
 			if err != nil {
 				log.Error(err, "creating guest cluster kubeconfig")
+				return ctrl.Result{}, err
 			}
 			clusterScheme := hsCluster.GetScheme()
 			utilruntime.Must(hyperv1beta1.AddToScheme(clusterScheme))
@@ -128,8 +126,17 @@ func (r *HostedClusterReconciler) Reconcile(
 				Namespace:              constants.HLFWatchedNamespace,
 			})
 
+			if err != nil {
+				log.Error(err, "creating new sub manager")
+				return ctrl.Result{}, err
+			}
+
 			//Adding hosted cluster to sub manger
-			mgrHostedCluster.Add(hsCluster)
+			err = mgrHostedCluster.Add(hsCluster)
+			if err != nil {
+				log.Error(err, "Adding hosted cluster runnable to sub manager")
+				return ctrl.Result{}, err
+			}
 
 			go func() {
 				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
@@ -148,31 +155,27 @@ func (r *HostedClusterReconciler) Reconcile(
 		}
 
 	} else {
-		if !found {
-			//if it's deleted, stop the reconcile
-			r.log.V(1).Info("testing", "found", found)
+		//Stop the controller when cluster is not ready or deleted
 
+		r.log.V(1).Info("Stop existing managers", "ready cluster", isReadyCluster, "found", found)
+		validKubeConfig, _ := hostedcluster.ValidateKubeConfig(r.Client, hcpNamespace)
+
+		if !isReadyCluster || !found || !validKubeConfig {
 			cancelFunc := hostedClusters[req.NamespacedName.Name].CancelFunc
 			cancelFunc()
-			r.log.V(1).Info("finished context")
+			r.log.V(1).Info("stop the manager", "controller name", hostedClusters[req.NamespacedName.Name])
+
 		}
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func eventPredicates() predicate.Predicate {
-	return predicate.Funcs{
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return true
-		},
-	}
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hyperv1beta1.HostedCluster{}).
-		WithEventFilter(eventPredicates()).
+		//WithEventFilter(eventPredicates()).
+		//WithEventFilter(predicate.ResourceVersionChangedPredicate{}).
 		Complete(r)
 }
