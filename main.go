@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
-	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
 
+	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
 	hostedclustercontroller "github.com/openshift/hypershift-logging-operator/controllers/hostedcluster"
 
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"

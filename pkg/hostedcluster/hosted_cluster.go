@@ -160,3 +160,30 @@ func BuildGuestKubeConfig(
 
 	return restConfig, nil
 }
+
+// Validate kube config
+func ValidateKubeConfig(c client.Client, hcpNamespace string) (bool, error) {
+
+	//check the secrets
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      KubeConfigSecret,
+			Namespace: hcpNamespace,
+		},
+	}
+
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(secret), secret); err != nil {
+		return false, fmt.Errorf("failed to get hostedcluster admin kubeconfig: %w", err)
+	}
+
+	//check the kubeconfig
+	kubeConfig, err := clientcmd.Load(secret.Data["kubeconfig"])
+	if err != nil {
+		return false, fmt.Errorf("failed to parse kubeconfig from the secret: %w", err)
+	}
+	if len(kubeConfig.Clusters) == 0 {
+		return false, fmt.Errorf("no clusters found in admin kubeconfig")
+	}
+
+	return true, nil
+}

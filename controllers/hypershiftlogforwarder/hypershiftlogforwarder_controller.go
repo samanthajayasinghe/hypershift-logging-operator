@@ -90,7 +90,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	err := r.Get(ctx, req.NamespacedName, instance)
+	err := r.Get(context.TODO(), req.NamespacedName, instance)
 	if errors.IsNotFound(err) {
 		return ctrl.Result{}, nil
 	}
