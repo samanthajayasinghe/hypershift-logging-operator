@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
@@ -82,32 +83,28 @@ type HyperShiftLogForwarderReconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
-	log := logr.Logger{}.WithName("hyperShiftLogForwarder-controller")
-	log.V(1).Info("start reconcile", "Name", req.NamespacedName)
+	r.log = ctrllog.FromContext(ctx).WithName("hyperShiftLogForwarder-controller")
+	r.log.V(1).Info("start reconcile", "Name", req.NamespacedName)
 	instance := &v1alpha1.HyperShiftLogForwarder{}
 
 	if r.HCPNamespace == "" {
 		return ctrl.Result{}, nil
 	}
 
-	err := r.Get(context.TODO(), req.NamespacedName, instance)
-	if errors.IsNotFound(err) {
-		return ctrl.Result{}, nil
-	}
-	if err != nil {
+	// Getting the hlf
+	hlfFound := false
+	hlfDeletion := false
+	err := r.Get(ctx, req.NamespacedName, instance)
+
+	if err != nil && errors.IsNotFound(err) {
+		hlfFound = false
+	} else if err == nil {
+		hlfFound = true
+	} else {
 		return ctrl.Result{}, err
 	}
 
-	if req.NamespacedName.Name != constants.SingletonName {
-		log.V(3).Info("hyperShiftLogForwarder is singleton and name should be 'instance'")
-		instance.Status.Conditions.SetCondition(incorrectInstanceNameCondition)
-		err = r.Status().Update(ctx, instance)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
-
+	// Getting the clf
 	clf := &loggingv1.ClusterLogForwarder{}
 
 	clfFound := false
@@ -120,23 +117,47 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	deletion := false
-	// HyperShiftLogForwarder was deleted by CU
-	if !instance.DeletionTimestamp.IsZero() {
-		deletion = true
+	if !instance.ObjectMeta.DeletionTimestamp.IsZero() {
+		// The object is being deleted
 		if controllerutil.ContainsFinalizer(instance, constants.ManagedLoggingFinalizer) {
+			hlfDeletion = true
+
+			//Update or create clf
+			if err := r.updateOrCreateCLF(clf, instance, ctx, clfFound); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// remove our finalizer from the list and update it.
 			controllerutil.RemoveFinalizer(instance, constants.ManagedLoggingFinalizer)
-			if err = r.Update(ctx, instance); err != nil {
+			if err := r.Update(ctx, instance); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
-	} else {
-		if !controllerutil.ContainsFinalizer(instance, constants.ManagedLoggingFinalizer) {
-			controllerutil.AddFinalizer(instance, constants.ManagedLoggingFinalizer)
-			if err = r.Update(ctx, instance); err != nil {
-				return ctrl.Result{}, err
-			}
+		r.log.V(1).Info("instance Info", "UID", instance.UID, "Name", instance.Name, "found", hlfFound, "deletion", hlfDeletion)
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
+
+	}
+
+	// The object is not being deleted, so if it does not have our finalizer,
+	// then lets add the finalizer and update the object. This is equivalent
+	// registering our finalizer.
+	if !controllerutil.ContainsFinalizer(instance, constants.ManagedLoggingFinalizer) {
+		controllerutil.AddFinalizer(instance, constants.ManagedLoggingFinalizer)
+		if err := r.Update(ctx, instance); err != nil {
+			return ctrl.Result{}, err
 		}
+	}
+	r.log.V(1).Info("instance Info", "UID", instance.UID, "Name", instance.Name, "found", hlfFound, "deletion", hlfDeletion)
+
+	if req.NamespacedName.Name != constants.SingletonName {
+		r.log.V(3).Info("hyperShiftLogForwarder is singleton and name should be 'instance'")
+		instance.Status.Conditions.SetCondition(incorrectInstanceNameCondition)
+		err = r.Status().Update(ctx, instance)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if err = r.ValidateInputs(instance); err != nil {
@@ -160,30 +181,35 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 
 	clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.CustomerManagedRuleNamePrefix)
 
-	if deletion {
-		err = r.MCClient.Update(ctx, clf)
-		if err != nil {
-			return ctrl.Result{}, err
+	if err := r.updateOrCreateCLF(clf, instance, ctx, clfFound); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+// updateOrCreateCLF creates or update clf in HCP namespace
+func (r *HyperShiftLogForwarderReconciler) updateOrCreateCLF(
+	clf *loggingv1.ClusterLogForwarder,
+	instance *v1alpha1.HyperShiftLogForwarder,
+	ctx context.Context,
+	clfFound bool,
+) error {
+	clf.Namespace = r.HCPNamespace
+	clf.Name = "instance"
+	clf = clusterlogforwarder.BuildInputsFromHLF(instance, clf)
+	clf = clusterlogforwarder.BuildOutputsFromHLF(instance, clf)
+	clf = clusterlogforwarder.BuildPipelinesFromHLF(instance, clf)
+
+	if clfFound {
+		if err := r.MCClient.Update(ctx, clf); err != nil {
+			return err
 		}
 	} else {
-		clf.Namespace = r.HCPNamespace
-		clf.Name = "instance"
-		clf = clusterlogforwarder.BuildInputsFromHLF(instance, clf)
-		clf = clusterlogforwarder.BuildOutputsFromHLF(instance, clf)
-		clf = clusterlogforwarder.BuildPipelinesFromHLF(instance, clf)
-
-		if clfFound {
-			if err = r.MCClient.Update(ctx, clf); err != nil {
-				return ctrl.Result{}, err
-			}
-		} else {
-			if err = r.MCClient.Create(ctx, clf); err != nil {
-				return ctrl.Result{}, err
-			}
+		if err := r.MCClient.Create(ctx, clf); err != nil {
+			return err
 		}
 	}
-
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // ValidateInputs validates HLF inputs

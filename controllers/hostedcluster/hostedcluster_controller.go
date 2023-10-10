@@ -23,6 +23,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
@@ -142,6 +144,7 @@ func (r *HostedClusterReconciler) Reconcile(
 				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
 					Named(hostedCluster.Name).
 					For(&v1alpha1.HyperShiftLogForwarder{}).
+					WithEventFilter(eventPredicates()).
 					Complete(&rhc)
 
 				r.log.Info("starting HostedCluster manager", "Name", hostedCluster.Name)
@@ -171,11 +174,18 @@ func (r *HostedClusterReconciler) Reconcile(
 	return ctrl.Result{}, nil
 }
 
+func eventPredicates() predicate.Predicate {
+	return predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return true
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hyperv1beta1.HostedCluster{}).
-		//WithEventFilter(eventPredicates()).
-		//WithEventFilter(predicate.ResourceVersionChangedPredicate{}).
+		WithEventFilter(eventPredicates()).
 		Complete(r)
 }
