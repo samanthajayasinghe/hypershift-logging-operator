@@ -92,23 +92,17 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	}
 
 	// Getting the hlf
-	hlfFound := false
-	hlfDeletion := false
-	err := r.Get(ctx, req.NamespacedName, instance)
-
-	if err != nil && errors.IsNotFound(err) {
-		hlfFound = false
-	} else if err == nil {
-		hlfFound = true
-	} else {
-		return ctrl.Result{}, err
+	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
+		// Ignore not-found errors, since they can't be fixed by an immediate
+		// requeue (we'll need to wait for a new notification).
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Getting the clf
 	clf := &loggingv1.ClusterLogForwarder{}
 
 	clfFound := false
-	err = r.MCClient.Get(context.TODO(), types.NamespacedName{Name: "instance", Namespace: r.HCPNamespace}, clf)
+	err := r.MCClient.Get(context.TODO(), types.NamespacedName{Name: "instance", Namespace: r.HCPNamespace}, clf)
 	if err != nil && errors.IsNotFound(err) {
 		clfFound = false
 	} else if err == nil {
@@ -120,7 +114,9 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	if !instance.ObjectMeta.DeletionTimestamp.IsZero() {
 		// The object is being deleted
 		if controllerutil.ContainsFinalizer(instance, constants.ManagedLoggingFinalizer) {
-			hlfDeletion = true
+
+			//removes all the user managed forwarder rules from CLF
+			clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.CustomerManagedRuleNamePrefix)
 
 			//Update or create clf
 			if err := r.updateOrCreateCLF(clf, instance, ctx, clfFound); err != nil {
@@ -133,7 +129,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 				return ctrl.Result{}, err
 			}
 		}
-		r.log.V(1).Info("instance Info", "UID", instance.UID, "Name", instance.Name, "found", hlfFound, "deletion", hlfDeletion)
+		r.log.V(1).Info("HLF deleted", "UID", instance.UID, "Name", instance.Name)
 		// Stop reconciliation as the item is being deleted
 		return ctrl.Result{}, nil
 
@@ -148,7 +144,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, err
 		}
 	}
-	r.log.V(1).Info("instance Info", "UID", instance.UID, "Name", instance.Name, "found", hlfFound, "deletion", hlfDeletion)
+	r.log.V(1).Info("Found new or update HLF", "UID", instance.UID, "Name", instance.Name)
 
 	if req.NamespacedName.Name != constants.SingletonName {
 		r.log.V(3).Info("hyperShiftLogForwarder is singleton and name should be 'instance'")
@@ -178,8 +174,6 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	if err = r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.CustomerManagedRuleNamePrefix)
 
 	if err := r.updateOrCreateCLF(clf, instance, ctx, clfFound); err != nil {
 		return ctrl.Result{}, err
