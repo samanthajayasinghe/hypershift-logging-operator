@@ -168,6 +168,8 @@ func (r *HostedClusterReconciler) Reconcile(
 			cancelFunc()
 			r.log.V(1).Info("stop the manager", "controller name", hostedClusters[req.NamespacedName.Name])
 
+			//delete hosted cluster from the map since it may create / active again
+			delete(hostedClusters, req.NamespacedName.Name)
 		}
 	}
 
