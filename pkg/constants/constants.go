@@ -6,4 +6,5 @@ const (
 	SingletonName                 = "instance"
 	ManagedLoggingFinalizer       = "logging.managed.openshift.io"
 	HLFWatchedNamespace           = "openshift-logging"
+	OperatorNamespace             = "openshift-hypershift-logging-operator"
 )
