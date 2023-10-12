@@ -2,7 +2,6 @@ package clusterlogforwardertemplate
 
 import (
 	"context"
-	"fmt"
 
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,8 +46,6 @@ func (e *enqueueRequestForHostedControlPlane) mapToRequests(obj client.Object) [
 			},
 		})
 	}
-
-	fmt.Println(reqs)
 	return reqs
 }
 
