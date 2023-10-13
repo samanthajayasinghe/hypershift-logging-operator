@@ -3,7 +3,9 @@ package clusterlogforwardertemplate
 import (
 	"context"
 
+	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,12 +41,16 @@ func (e *enqueueRequestForHostedControlPlane) mapToRequests(obj client.Object) [
 	}
 
 	for _, h := range hcpList.Items {
-		reqs = append(reqs, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      "instance",
-				Namespace: h.Namespace,
-			},
-		})
+		clf := &loggingv1.ClusterLogForwarder{}
+		err = e.Client.Get(context.TODO(), types.NamespacedName{Namespace: h.Namespace, Name: "instance"}, clf)
+		if errors.IsNotFound(err) {
+			reqs = append(reqs, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "instance",
+					Namespace: h.Namespace,
+				},
+			})
+		}
 	}
 	return reqs
 }
