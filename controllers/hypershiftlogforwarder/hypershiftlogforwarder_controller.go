@@ -32,17 +32,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
+	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/constants"
-	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
 )
 
 var (
-	nonSupportTypeCondition = loggingv1.Condition{
+	nonSupportInputTypeCondition = loggingv1.Condition{
 		Type:    "Degraded",
 		Status:  "True",
-		Reason:  "NonSupportedInput",
+		Reason:  "NonSupportedInputType",
 		Message: "The input supports only the audit type",
 	}
 	illegalNameCondition = loggingv1.Condition{
@@ -56,6 +57,12 @@ var (
 		Status:  "True",
 		Reason:  "NonSupportResourceName",
 		Message: fmt.Sprintf("The name of the HyperShiftLogForwarder must be '%s'", constants.SingletonName),
+	}
+	nonSupportFilterTypeCondition = loggingv1.Condition{
+		Type:    "Degraded",
+		Status:  "True",
+		Reason:  "NonSupportedFilterType",
+		Message: "The filter supports only the kubeAPIAudit type",
 	}
 	hostedClusters = map[string]HostedCluster{}
 )
@@ -168,9 +175,14 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if err = r.ValidateFilters(instance); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	instance.Status.Conditions.RemoveCondition(illegalNameCondition.Type)
-	instance.Status.Conditions.RemoveCondition(nonSupportTypeCondition.Type)
+	instance.Status.Conditions.RemoveCondition(nonSupportInputTypeCondition.Type)
 	instance.Status.Conditions.RemoveCondition(incorrectInstanceNameCondition.Type)
+	instance.Status.Conditions.RemoveCondition(nonSupportFilterTypeCondition.Type)
 	if err = r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -193,6 +205,7 @@ func (r *HyperShiftLogForwarderReconciler) updateOrCreateCLF(
 	clf = clusterlogforwarder.BuildInputsFromHLF(instance, clf)
 	clf = clusterlogforwarder.BuildOutputsFromHLF(instance, clf)
 	clf = clusterlogforwarder.BuildPipelinesFromHLF(instance, clf)
+	clf = clusterlogforwarder.BuildFiltersFromHLF(instance, clf)
 
 	if clfFound {
 		if err := r.MCClient.Update(ctx, clf); err != nil {
@@ -211,7 +224,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidateInputs(hlf *v1alpha1.HyperShi
 	for _, input := range hlf.Spec.Inputs {
 		if input.Infrastructure != nil || input.Application != nil {
 			r.log.V(3).Info("support only audit log for HyperShiftLogForwarder")
-			hlf.Status.Conditions.SetCondition(nonSupportTypeCondition)
+			hlf.Status.Conditions.SetCondition(nonSupportInputTypeCondition)
 			if err := r.Status().Update(context.TODO(), hlf); err != nil {
 				return err
 			}
@@ -250,7 +263,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 		for _, ir := range ppl.InputRefs {
 			if ir == "application" || ir == "infrastructure" {
 				r.log.V(3).Info("support only audit log for HyperShiftLogForwarder")
-				hlf.Status.Conditions.SetCondition(nonSupportTypeCondition)
+				hlf.Status.Conditions.SetCondition(nonSupportInputTypeCondition)
 				if err := r.Status().Update(context.TODO(), hlf); err != nil {
 					return err
 				}
@@ -264,6 +277,29 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 				return err
 			}
 			return fmt.Errorf("preserved string %s cannot be set to the pipeline name", constants.ProviderManagedRuleNamePrefix)
+		}
+	}
+	return nil
+}
+
+// ValidateFilters validates the HLF filters
+func (r *HyperShiftLogForwarderReconciler) ValidateFilters(hlf *v1alpha1.HyperShiftLogForwarder) error {
+	for _, f := range hlf.Spec.Filters {
+		if strings.Contains(f.Name, constants.ProviderManagedRuleNamePrefix) {
+			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the filter name", constants.ProviderManagedRuleNamePrefix))
+			hlf.Status.Conditions.SetCondition(illegalNameCondition)
+			if err := r.Status().Update(context.TODO(), hlf); err != nil {
+				return err
+			}
+			return fmt.Errorf("preserved string %s cannot be set to the filter name", constants.ProviderManagedRuleNamePrefix)
+		}
+		if f.Type != "kubeAPIAudit" {
+			r.log.V(3).Info(fmt.Sprintf("support only kubeAPIAudit type of filter for HyperShiftLogForwarder"))
+			hlf.Status.Conditions.SetCondition(nonSupportFilterTypeCondition)
+			if err := r.Status().Update(context.TODO(), hlf); err != nil {
+				return err
+			}
+			return fmt.Errorf("support only kubeAPIAudit filter for HyperShiftLogForwarder")
 		}
 	}
 	return nil

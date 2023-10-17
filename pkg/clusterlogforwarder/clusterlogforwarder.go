@@ -92,6 +92,22 @@ func BuildPipelinesFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 	return clf
 }
 
+// BuildFiltersFromTemplate builds the filter array from the template
+func BuildFilterFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
+	clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
+
+	if len(template.Spec.Template.Filters) > 0 {
+		for _, f := range template.Spec.Template.Filters {
+			if !strings.Contains(f.Name, constants.ProviderManagedRuleNamePrefix) {
+				f.Name = constants.ProviderManagedRuleNamePrefix + "-" + f.Name
+			}
+			clf.Spec.Filters = append(clf.Spec.Filters, f)
+		}
+	}
+
+	return clf
+}
+
 // BuildInputsFromHLF builds the CLF inputs from the HLF
 func BuildInputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
 	if len(hlf.Spec.Inputs) > 0 {
@@ -134,5 +150,18 @@ func BuildPipelinesFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.
 		}
 	}
 
+	return clf
+}
+
+// BuildFiltersFromHLF builds the CLF filters from the HLF
+func BuildFiltersFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
+	if len(hlf.Spec.Filters) > 0 {
+		for _, f := range hlf.Spec.Filters {
+			if !strings.Contains(f.Name, constants.CustomerManagedRuleNamePrefix) {
+				f.Name = constants.CustomerManagedRuleNamePrefix + "-" + f.Name
+			}
+			clf.Spec.Filters = append(clf.Spec.Filters, f)
+		}
+	}
 	return clf
 }
