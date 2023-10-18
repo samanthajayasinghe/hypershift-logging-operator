@@ -153,6 +153,7 @@ func (r *ClusterLogForwarderTemplateReconciler) buildClusterLogForwarder(templat
 	clf = clusterlogforwarder.BuildInputsFromTemplate(template, clf)
 	clf = clusterlogforwarder.BuildOutputsFromTemplate(template, clf)
 	clf = clusterlogforwarder.BuildPipelinesFromTemplate(template, clf)
+	clf = clusterlogforwarder.BuildFilterFromTemplate(template, clf)
 
 	return clf
 
