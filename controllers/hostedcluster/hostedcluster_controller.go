@@ -28,9 +28,11 @@ import (
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
+	hypershiftsecret "github.com/openshift/hypershift-logging-operator/controllers/secret"
 	constants "github.com/openshift/hypershift-logging-operator/pkg/constants"
 	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
@@ -117,6 +119,13 @@ func (r *HostedClusterReconciler) Reconcile(
 				HCPNamespace: hcpNamespace,
 			}
 
+			rHostedClusterSecret := hypershiftsecret.SecretReconciler{
+				Client:       hsCluster.GetClient(),
+				Scheme:       clusterScheme,
+				MCClient:     r.Client,
+				HCPNamespace: hcpNamespace,
+			}
+
 			leaderElectionID := fmt.Sprintf("%s.logging.managed.openshift.io", hostedCluster.Name)
 
 			mgrHostedCluster, err := ctrl.NewManager(restConfig, ctrl.Options{
@@ -141,11 +150,27 @@ func (r *HostedClusterReconciler) Reconcile(
 			}
 
 			go func() {
+				//Add hypershift log forwarder to sub manager
 				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
 					Named(hostedCluster.Name).
 					For(&v1alpha1.HyperShiftLogForwarder{}).
 					WithEventFilter(eventPredicates()).
 					Complete(&rhc)
+
+				if err != nil {
+					r.log.Error(err, "problem adding hypershift log forwarder controller to sub manager", "Name", hostedCluster.Name)
+				}
+
+				// Add hosted cluster secret to sub manager
+				controllerName := fmt.Sprintf("secret_%s", hostedCluster.Name)
+				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
+					Named(controllerName).
+					For(&corev1.Secret{}).
+					Complete(&rHostedClusterSecret)
+
+				if err != nil {
+					r.log.Error(err, "problem adding secret controller to sub manager", "Name", hostedCluster.Name)
+				}
 
 				r.log.Info("starting HostedCluster manager", "Name", hostedCluster.Name)
 				if err := mgrHostedCluster.Start(ctx); err != nil {

@@ -7,4 +7,5 @@ const (
 	ManagedLoggingFinalizer       = "logging.managed.openshift.io"
 	HLFWatchedNamespace           = "openshift-logging"
 	OperatorNamespace             = "openshift-hypershift-logging-operator"
+	BackupExcludeLabel            = "velero.io/exclude-from-backup"
 )
