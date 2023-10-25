@@ -35,7 +35,7 @@ import (
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/clusterlogforwardertemplate"
-	hostedclustercontroller "github.com/openshift/hypershift-logging-operator/controllers/hostedcluster"
+	"github.com/openshift/hypershift-logging-operator/controllers/hostedcluster"
 )
 
 var (
@@ -103,7 +103,7 @@ func main() {
 	}
 
 	//Adding HostedCluster controller
-	if err = (&hostedclustercontroller.HostedClusterReconciler{
+	if err = (&hostedcluster.HostedClusterReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		Mgr:    mgr,

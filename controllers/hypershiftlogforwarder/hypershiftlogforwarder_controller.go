@@ -58,6 +58,12 @@ var (
 		Reason:  "NonSupportResourceName",
 		Message: fmt.Sprintf("The name of the HyperShiftLogForwarder must be '%s'", constants.SingletonName),
 	}
+	nonSupportedInputRefCondition = loggingv1.Condition{
+		Type:    "Degraded",
+		Status:  "True",
+		Reason:  "NonSupportedInputRef",
+		Message: fmt.Sprintf("The input ref can be %s only for the current release", clusterlogforwarder.InputHTTPServerName),
+	}
 	nonSupportFilterTypeCondition = loggingv1.Condition{
 		Type:    "Degraded",
 		Status:  "True",
@@ -163,9 +169,10 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	if err = r.ValidateInputs(instance); err != nil {
-		return ctrl.Result{}, err
-	}
+	// Do not need to validate the inputs from HLF since we build it as fixed format for now
+	//if err = r.ValidateInputs(instance); err != nil {
+	//	return ctrl.Result{}, err
+	//}
 
 	if err = r.ValidateOutputs(instance); err != nil {
 		return ctrl.Result{}, err
@@ -183,6 +190,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	instance.Status.Conditions.RemoveCondition(nonSupportInputTypeCondition.Type)
 	instance.Status.Conditions.RemoveCondition(incorrectInstanceNameCondition.Type)
 	instance.Status.Conditions.RemoveCondition(nonSupportFilterTypeCondition.Type)
+	instance.Status.Conditions.RemoveCondition(nonSupportedInputRefCondition.Type)
 	if err = r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -261,6 +269,14 @@ func (r *HyperShiftLogForwarderReconciler) ValidateOutputs(hlf *v1alpha1.HyperSh
 func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.HyperShiftLogForwarder) error {
 	for _, ppl := range hlf.Spec.Pipelines {
 		for _, ir := range ppl.InputRefs {
+			if ir != clusterlogforwarder.InputHTTPServerName {
+				r.log.V(3).Info(fmt.Sprintf("the input can be '%s' only for the current release", clusterlogforwarder.InputHTTPServerName))
+				hlf.Status.Conditions.SetCondition(nonSupportedInputRefCondition)
+				if err := r.Status().Update(context.TODO(), hlf); err != nil {
+					return err
+				}
+				return fmt.Errorf(fmt.Sprintf("support only %s as input ref for current release", clusterlogforwarder.InputHTTPServerName))
+			}
 			if ir == "application" || ir == "infrastructure" {
 				r.log.V(3).Info("support only audit log for HyperShiftLogForwarder")
 				hlf.Status.Conditions.SetCondition(nonSupportInputTypeCondition)

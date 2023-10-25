@@ -10,6 +10,23 @@ import (
 	"github.com/openshift/hypershift-logging-operator/pkg/constants"
 )
 
+var (
+	InputHTTPServerName = "input-httpserver"
+	InputHTTPServerSpec = loggingv1.InputSpec{
+		Name: InputHTTPServerName,
+		Receiver: &loggingv1.ReceiverSpec{
+			HTTP: &loggingv1.HTTPReceiver{
+				Format: "kubeAPIAudit",
+				ReceiverPort: loggingv1.ReceiverPort{
+					Name:       "httpserver",
+					Port:       443,
+					TargetPort: 8443,
+				},
+			},
+		},
+	}
+)
+
 // CleanUpClusterLogForwarder removes all the user managed forwarder rules from CLF
 func CleanUpClusterLogForwarder(clf *loggingv1.ClusterLogForwarder, keyword string) *loggingv1.ClusterLogForwarder {
 
@@ -33,9 +50,18 @@ func CleanUpClusterLogForwarder(clf *loggingv1.ClusterLogForwarder, keyword stri
 			newPipelines = append(newPipelines, ppl)
 		}
 	}
+
+	newFilters := clf.Spec.Filters[:0]
+	for _, fil := range clf.Spec.Filters {
+		if !strings.Contains(fil.Name, keyword) {
+			newFilters = append(newFilters, fil)
+		}
+	}
+
 	clf.Spec.Inputs = newInputs
 	clf.Spec.Outputs = newOutputs
 	clf.Spec.Pipelines = newPipelines
+	clf.Spec.Filters = newFilters
 
 	return clf
 }
@@ -44,14 +70,18 @@ func CleanUpClusterLogForwarder(clf *loggingv1.ClusterLogForwarder, keyword stri
 func BuildInputsFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 	clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
 
-	if len(template.Spec.Template.Inputs) > 0 {
-		for _, input := range template.Spec.Template.Inputs {
-			if !strings.Contains(input.Name, constants.ProviderManagedRuleNamePrefix) {
-				input.Name = constants.ProviderManagedRuleNamePrefix + "-" + input.Name
-			}
-			clf.Spec.Inputs = append(clf.Spec.Inputs, input)
-		}
+	if len(clf.Spec.Inputs) < 1 {
+		clf.Spec.Inputs = append(clf.Spec.Inputs, InputHTTPServerSpec)
 	}
+
+	//if len(template.Spec.Template.Inputs) > 0 {
+	//	for _, input := range template.Spec.Template.Inputs {
+	//		if !strings.Contains(input.Name, constants.ProviderManagedRuleNamePrefix) {
+	//			input.Name = constants.ProviderManagedRuleNamePrefix + "-" + input.Name
+	//		}
+	//		clf.Spec.Inputs = append(clf.Spec.Inputs, input)
+	//	}
+	//}
 
 	return clf
 }
@@ -93,7 +123,7 @@ func BuildPipelinesFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 }
 
 // BuildFiltersFromTemplate builds the filter array from the template
-func BuildFilterFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
+func BuildFiltersFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 	clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
 
 	if len(template.Spec.Template.Filters) > 0 {
@@ -110,14 +140,19 @@ func BuildFilterFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 
 // BuildInputsFromHLF builds the CLF inputs from the HLF
 func BuildInputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
-	if len(hlf.Spec.Inputs) > 0 {
-		for _, input := range hlf.Spec.Inputs {
-			if !strings.Contains(input.Name, constants.CustomerManagedRuleNamePrefix) {
-				input.Name = constants.CustomerManagedRuleNamePrefix + "-" + input.Name
-			}
-			clf.Spec.Inputs = append(clf.Spec.Inputs, input)
-		}
+
+	if len(clf.Spec.Inputs) < 1 {
+		clf.Spec.Inputs = append(clf.Spec.Inputs, InputHTTPServerSpec)
 	}
+
+	//if len(hlf.Spec.Inputs) > 0 {
+	//	for _, input := range hlf.Spec.Inputs {
+	//		if !strings.Contains(input.Name, constants.CustomerManagedRuleNamePrefix) {
+	//			input.Name = constants.CustomerManagedRuleNamePrefix + "-" + input.Name
+	//		}
+	//		clf.Spec.Inputs = append(clf.Spec.Inputs, input)
+	//	}
+	//}
 	return clf
 }
 
