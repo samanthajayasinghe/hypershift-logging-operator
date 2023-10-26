@@ -12,6 +12,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	hlov1alpha1 "github.com/openshift/hypershift-logging-operator/api/v1alpha1"
+	"github.com/openshift/hypershift-logging-operator/pkg/constants"
 )
 
 var _ handler.EventHandler = &enqueueRequestForHostedControlPlane{}
@@ -40,18 +43,28 @@ func (e *enqueueRequestForHostedControlPlane) mapToRequests(obj client.Object) [
 		return reqs
 	}
 
-	for _, h := range hcpList.Items {
-		clf := &loggingv1.ClusterLogForwarder{}
-		err = e.Client.Get(context.TODO(), types.NamespacedName{Namespace: h.Namespace, Name: "instance"}, clf)
-		if errors.IsNotFound(err) {
-			reqs = append(reqs, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "instance",
-					Namespace: h.Namespace,
-				},
-			})
+	templateList := &hlov1alpha1.ClusterLogForwarderTemplateList{}
+	err = e.Client.List(context.TODO(), templateList, &client.ListOptions{Namespace: constants.OperatorNamespace})
+	if err != nil {
+		return reqs
+	}
+
+	// Build the request from every hcp namespace and only when the CLF with the template name does not exist
+	for _, t := range templateList.Items {
+		for _, h := range hcpList.Items {
+			clf := &loggingv1.ClusterLogForwarder{}
+			err = e.Client.Get(context.TODO(), types.NamespacedName{Namespace: h.Namespace, Name: t.Name}, clf)
+			if errors.IsNotFound(err) {
+				reqs = append(reqs, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      t.Name,
+						Namespace: h.Namespace,
+					},
+				})
+			}
 		}
 	}
+
 	return reqs
 }
 

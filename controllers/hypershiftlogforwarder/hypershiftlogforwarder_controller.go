@@ -19,7 +19,7 @@ package hypershiftlogforwarder
 import (
 	"context"
 	"fmt"
-	"strings"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
@@ -32,8 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
-
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/constants"
@@ -45,18 +43,6 @@ var (
 		Status:  "True",
 		Reason:  "NonSupportedInputType",
 		Message: "The input supports only the audit type",
-	}
-	illegalNameCondition = loggingv1.Condition{
-		Type:    "Degraded",
-		Status:  "True",
-		Reason:  "IllegalName",
-		Message: fmt.Sprintf("The Name contains the SRE preserved string %s", constants.ProviderManagedRuleNamePrefix),
-	}
-	incorrectInstanceNameCondition = loggingv1.Condition{
-		Type:    "Degraded",
-		Status:  "True",
-		Reason:  "NonSupportResourceName",
-		Message: fmt.Sprintf("The name of the HyperShiftLogForwarder must be '%s'", constants.SingletonName),
 	}
 	nonSupportedInputRefCondition = loggingv1.Condition{
 		Type:    "Degraded",
@@ -115,7 +101,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	clf := &loggingv1.ClusterLogForwarder{}
 
 	clfFound := false
-	err := r.MCClient.Get(context.TODO(), types.NamespacedName{Name: "instance", Namespace: r.HCPNamespace}, clf)
+	err := r.MCClient.Get(context.TODO(), types.NamespacedName{Name: req.Name, Namespace: r.HCPNamespace}, clf)
 	if err != nil && errors.IsNotFound(err) {
 		clfFound = false
 	} else if err == nil {
@@ -127,25 +113,19 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 	if !instance.ObjectMeta.DeletionTimestamp.IsZero() {
 		// The object is being deleted
 		if controllerutil.ContainsFinalizer(instance, constants.ManagedLoggingFinalizer) {
-
-			//removes all the user managed forwarder rules from CLF
-			clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.CustomerManagedRuleNamePrefix)
-
-			//Update or create clf
-			if err := r.updateOrCreateCLF(clf, instance, ctx, clfFound); err != nil {
-				return ctrl.Result{}, err
-			}
-
 			// remove our finalizer from the list and update it.
 			controllerutil.RemoveFinalizer(instance, constants.ManagedLoggingFinalizer)
 			if err := r.Update(ctx, instance); err != nil {
+				return ctrl.Result{}, err
+			}
+			// delete the CLF which created by the HLF
+			if err = r.Delete(ctx, clf); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 		r.log.V(1).Info("HLF deleted", "UID", instance.UID, "Name", instance.Name)
 		// Stop reconciliation as the item is being deleted
 		return ctrl.Result{}, nil
-
 	}
 
 	// The object is not being deleted, so if it does not have our finalizer,
@@ -157,26 +137,12 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, err
 		}
 	}
-	r.log.V(1).Info("Found new or update HLF", "UID", instance.UID, "Name", instance.Name)
-
-	if req.NamespacedName.Name != constants.SingletonName {
-		r.log.V(3).Info("hyperShiftLogForwarder is singleton and name should be 'instance'")
-		instance.Status.Conditions.SetCondition(incorrectInstanceNameCondition)
-		err = r.Status().Update(ctx, instance)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
+	r.log.V(3).Info("Found new or update HLF", "UID", instance.UID, "Name", instance.Name)
 
 	// Do not need to validate the inputs from HLF since we build it as fixed format for now
 	//if err = r.ValidateInputs(instance); err != nil {
 	//	return ctrl.Result{}, err
 	//}
-
-	if err = r.ValidateOutputs(instance); err != nil {
-		return ctrl.Result{}, err
-	}
 
 	if err = r.ValidatePipelines(instance); err != nil {
 		return ctrl.Result{}, err
@@ -186,43 +152,59 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	instance.Status.Conditions.RemoveCondition(illegalNameCondition.Type)
 	instance.Status.Conditions.RemoveCondition(nonSupportInputTypeCondition.Type)
-	instance.Status.Conditions.RemoveCondition(incorrectInstanceNameCondition.Type)
 	instance.Status.Conditions.RemoveCondition(nonSupportFilterTypeCondition.Type)
 	instance.Status.Conditions.RemoveCondition(nonSupportedInputRefCondition.Type)
 	if err = r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if err := r.updateOrCreateCLF(clf, instance, ctx, clfFound); err != nil {
+	if err := r.refreshCLF(clf, instance, ctx, clfFound); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }
 
-// updateOrCreateCLF creates or update clf in HCP namespace
-func (r *HyperShiftLogForwarderReconciler) updateOrCreateCLF(
-	clf *loggingv1.ClusterLogForwarder,
-	instance *v1alpha1.HyperShiftLogForwarder,
-	ctx context.Context,
-	clfFound bool,
-) error {
+func (r *HyperShiftLogForwarderReconciler) buildClusterLogForwarder(instance *v1alpha1.HyperShiftLogForwarder,
+) *loggingv1.ClusterLogForwarder {
+
+	clf := &loggingv1.ClusterLogForwarder{}
+
+	clf.Name = instance.Name
 	clf.Namespace = r.HCPNamespace
-	clf.Name = "instance"
+
 	clf = clusterlogforwarder.BuildInputsFromHLF(instance, clf)
 	clf = clusterlogforwarder.BuildOutputsFromHLF(instance, clf)
 	clf = clusterlogforwarder.BuildPipelinesFromHLF(instance, clf)
 	clf = clusterlogforwarder.BuildFiltersFromHLF(instance, clf)
 
+	return clf
+}
+
+// updateOrCreateCLF creates or update clf in HCP namespace
+func (r *HyperShiftLogForwarderReconciler) refreshCLF(
+	oldClf *loggingv1.ClusterLogForwarder,
+	instance *v1alpha1.HyperShiftLogForwarder,
+	ctx context.Context,
+	clfFound bool,
+) error {
+
+	newClf := r.buildClusterLogForwarder(instance)
+
 	if clfFound {
-		if err := r.MCClient.Update(ctx, clf); err != nil {
-			return err
+		if reflect.DeepEqual(newClf.Spec, oldClf.Spec) {
+			return nil
+		} else {
+			err := r.MCClient.Delete(ctx, oldClf)
+			if err != nil {
+				return err
+			}
 		}
-	} else {
-		if err := r.MCClient.Create(ctx, clf); err != nil {
-			return err
-		}
+	}
+
+	err := r.MCClient.Create(ctx, newClf)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -237,29 +219,6 @@ func (r *HyperShiftLogForwarderReconciler) ValidateInputs(hlf *v1alpha1.HyperShi
 				return err
 			}
 			return fmt.Errorf("support only audit log for HyperShiftLogForwarder")
-		}
-		if strings.Contains(input.Name, constants.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the input name", constants.ProviderManagedRuleNamePrefix))
-			hlf.Status.Conditions.SetCondition(illegalNameCondition)
-			if err := r.Status().Update(context.TODO(), hlf); err != nil {
-				return err
-			}
-			return fmt.Errorf("preserved string %s cannot be set to the input name", constants.ProviderManagedRuleNamePrefix)
-		}
-	}
-	return nil
-}
-
-// ValidateOutputs validates the HLF outputs
-func (r *HyperShiftLogForwarderReconciler) ValidateOutputs(hlf *v1alpha1.HyperShiftLogForwarder) error {
-	for _, output := range hlf.Spec.Outputs {
-		if strings.Contains(output.Name, constants.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the output name", constants.ProviderManagedRuleNamePrefix))
-			hlf.Status.Conditions.SetCondition(illegalNameCondition)
-			if err := r.Status().Update(context.TODO(), hlf); err != nil {
-				return err
-			}
-			return fmt.Errorf("preserved string %s cannot be set to the output name", constants.ProviderManagedRuleNamePrefix)
 		}
 	}
 	return nil
@@ -286,14 +245,6 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 				return fmt.Errorf("support only audit log for HyperShiftLogForwarder")
 			}
 		}
-		if strings.Contains(ppl.Name, constants.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the pipeline name", constants.ProviderManagedRuleNamePrefix))
-			hlf.Status.Conditions.SetCondition(illegalNameCondition)
-			if err := r.Status().Update(context.TODO(), hlf); err != nil {
-				return err
-			}
-			return fmt.Errorf("preserved string %s cannot be set to the pipeline name", constants.ProviderManagedRuleNamePrefix)
-		}
 	}
 	return nil
 }
@@ -301,14 +252,6 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 // ValidateFilters validates the HLF filters
 func (r *HyperShiftLogForwarderReconciler) ValidateFilters(hlf *v1alpha1.HyperShiftLogForwarder) error {
 	for _, f := range hlf.Spec.Filters {
-		if strings.Contains(f.Name, constants.ProviderManagedRuleNamePrefix) {
-			r.log.V(3).Info(fmt.Sprintf("preserved string %s cannot be set to the filter name", constants.ProviderManagedRuleNamePrefix))
-			hlf.Status.Conditions.SetCondition(illegalNameCondition)
-			if err := r.Status().Update(context.TODO(), hlf); err != nil {
-				return err
-			}
-			return fmt.Errorf("preserved string %s cannot be set to the filter name", constants.ProviderManagedRuleNamePrefix)
-		}
 		if f.Type != "kubeAPIAudit" {
 			r.log.V(3).Info(fmt.Sprintf("support only kubeAPIAudit type of filter for HyperShiftLogForwarder"))
 			hlf.Status.Conditions.SetCondition(nonSupportFilterTypeCondition)
@@ -319,11 +262,4 @@ func (r *HyperShiftLogForwarderReconciler) ValidateFilters(hlf *v1alpha1.HyperSh
 		}
 	}
 	return nil
-}
-
-func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&hyperv1beta1.HostedCluster{}).
-		// WithEventFilter(eventPredicates()).
-		Complete(r)
 }
