@@ -18,7 +18,7 @@ package clusterlogforwardertemplate
 
 import (
 	"context"
-	"fmt"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	loggingv1 "github.com/openshift/cluster-logging-operator/apis/logging/v1"
@@ -58,12 +58,6 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 ) (ctrl.Result, error) {
 	r.log = ctrllog.FromContext(ctx).WithName("controller")
 
-	if req.NamespacedName.Name != constants.SingletonName {
-		err := fmt.Errorf("clusterLogForwarderTemplate name must be '%s'", constants.SingletonName)
-		r.log.V(1).Error(err, "")
-		return ctrl.Result{}, err
-	}
-
 	hcpList, err := hostedcluster.GetHostedControlPlanes(r.Client, ctx, false)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -72,7 +66,7 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 	template := &hlov1alpha1.ClusterLogForwarderTemplate{}
 
 	// Reconcile the CLFT resource in the operator namespace
-	if err := r.Get(ctx, types.NamespacedName{Namespace: constants.OperatorNamespace, Name: constants.SingletonName}, template); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Namespace: constants.OperatorNamespace, Name: req.Name}, template); err != nil {
 		// Ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification).
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -101,7 +95,7 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 		clf := &loggingv1.ClusterLogForwarder{}
 
 		found := false
-		err = r.Get(ctx, types.NamespacedName{Name: "instance", Namespace: hcp.Namespace}, clf)
+		err = r.Get(ctx, types.NamespacedName{Name: req.Name, Namespace: hcp.Namespace}, clf)
 		if errors.IsNotFound(err) {
 			found = false
 		} else if err != nil {
@@ -109,33 +103,36 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 		} else {
 			found = true
 		}
-
 		// If CLFT is deleted, and the CLF exists in the HCP namespace, do clean up
 		if deletion && found {
-			clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.ProviderManagedRuleNamePrefix)
-			err = r.Update(ctx, clf)
+			err = r.Delete(ctx, clf)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 
-		// If CLFT is not deleting, create or update the CLF in the HCP namespace
+		// If CLFT is not deleting, recreate the CLF in the HCP namespace
 		if !deletion {
 			r.log.V(1).Info("Status", "Deletion", false, "Found", found)
 
-			clf = r.buildClusterLogForwarder(template, clf, hcp.Namespace)
+			// Build the CLF from the current template
+			newClf := r.buildClusterLogForwarder(template, hcp.Namespace)
 
-			if !found {
-				err = r.Create(ctx, clf)
-				if err != nil {
-					return ctrl.Result{}, err
+			if found {
+				// If the existing CLF is the same as the new one, skip
+				if reflect.DeepEqual(newClf.Spec, clf.Spec) {
+					continue
+				} else {
+					// If the existing CLF is not the same as the new built one, delete existing
+					err = r.Delete(ctx, clf)
+					if err != nil {
+						return ctrl.Result{}, err
+					}
 				}
 			}
-			if found {
-				err = r.Update(ctx, clf)
-				if err != nil {
-					return ctrl.Result{}, err
-				}
+			err = r.Create(ctx, newClf)
+			if err != nil {
+				return ctrl.Result{}, err
 			}
 		}
 	}
@@ -144,12 +141,13 @@ func (r *ClusterLogForwarderTemplateReconciler) Reconcile(
 }
 
 func (r *ClusterLogForwarderTemplateReconciler) buildClusterLogForwarder(template *hlov1alpha1.ClusterLogForwarderTemplate,
-	clf *loggingv1.ClusterLogForwarder, ns string) *loggingv1.ClusterLogForwarder {
+	ns string) *loggingv1.ClusterLogForwarder {
 
-	clf.Name = "instance"
+	clf := &loggingv1.ClusterLogForwarder{}
+
+	clf.Name = template.Name
 	clf.Namespace = ns
 
-	clusterlogforwarder.CleanUpClusterLogForwarder(clf, constants.ProviderManagedRuleNamePrefix)
 	clf = clusterlogforwarder.BuildInputsFromTemplate(template, clf)
 	clf = clusterlogforwarder.BuildOutputsFromTemplate(template, clf)
 	clf = clusterlogforwarder.BuildPipelinesFromTemplate(template, clf)
