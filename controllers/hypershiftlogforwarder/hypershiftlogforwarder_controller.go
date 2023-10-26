@@ -32,8 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
-
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/pkg/clusterlogforwarder"
 	"github.com/openshift/hypershift-logging-operator/pkg/constants"
@@ -139,7 +137,7 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, err
 		}
 	}
-	r.log.V(1).Info("Found new or update HLF", "UID", instance.UID, "Name", instance.Name)
+	r.log.V(3).Info("Found new or update HLF", "UID", instance.UID, "Name", instance.Name)
 
 	// Do not need to validate the inputs from HLF since we build it as fixed format for now
 	//if err = r.ValidateInputs(instance); err != nil {
@@ -173,7 +171,7 @@ func (r *HyperShiftLogForwarderReconciler) buildClusterLogForwarder(instance *v1
 	clf := &loggingv1.ClusterLogForwarder{}
 
 	clf.Name = instance.Name
-	clf.Namespace = instance.Namespace
+	clf.Namespace = r.HCPNamespace
 
 	clf = clusterlogforwarder.BuildInputsFromHLF(instance, clf)
 	clf = clusterlogforwarder.BuildOutputsFromHLF(instance, clf)
@@ -264,11 +262,4 @@ func (r *HyperShiftLogForwarderReconciler) ValidateFilters(hlf *v1alpha1.HyperSh
 		}
 	}
 	return nil
-}
-
-func (r *HyperShiftLogForwarderReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&hyperv1beta1.HostedCluster{}).
-		// WithEventFilter(eventPredicates()).
-		Complete(r)
 }

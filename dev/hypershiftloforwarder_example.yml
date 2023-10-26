@@ -1,18 +1,31 @@
 apiVersion: logging.managed.openshift.io/v1alpha1
 kind: HyperShiftLogForwarder
 metadata:
-  name: hypershiftlogforwarder-sample
+  name: http-to-cloudwatch-new
   namespace: openshift-logging
 spec:
+  inputs:
+    - name: input-httpserver
+      receiver:
+        http:
+          format: kubeAPIAudit
+          receiverPort:
+            name: httpserver
+            port: 443
+            targetPort: 8443
   outputs:
-    - name: remote-elasticsearch
-      secret:
-        name: elasticsearch
-      type: elasticsearch
+  - name: cloudwatch
+    type: cloudwatch
+    cloudwatch:
+      groupPrefix:  sjayasin-hcp
+      groupBy: logType
+      region: us-east-2
+    secret:
+      name: cloudwatch-credentials
   pipelines:
-    - name: enable-default-log-store
-      inputRefs: [ application, audit, infrastructure ]
-      outputRefs: [ default ]
-    - name: forward-to-remote
-      inputRefs: [ application ]
-      outputRefs: [ remote-elasticsearch ]
+  - inputRefs:
+    - input-httpserver
+    name: to-cloudwatch
+    outputRefs:
+    - cloudwatch
+  serviceAccountName: clf-collector
