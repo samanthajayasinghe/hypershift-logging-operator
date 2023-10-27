@@ -119,8 +119,10 @@ func (r *HyperShiftLogForwarderReconciler) Reconcile(ctx context.Context, req ct
 				return ctrl.Result{}, err
 			}
 			// delete the CLF which created by the HLF
-			if err = r.Delete(ctx, clf); err != nil {
-				return ctrl.Result{}, err
+			if clfFound {
+				if err = r.MCClient.Delete(ctx, clf); err != nil {
+					return ctrl.Result{}, err
+				}
 			}
 		}
 		r.log.V(1).Info("HLF deleted", "UID", instance.UID, "Name", instance.Name)
