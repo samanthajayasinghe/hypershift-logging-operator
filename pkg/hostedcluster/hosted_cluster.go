@@ -84,7 +84,7 @@ func GetHostedClusters(
 // IsReadyHostedCluster returns true if hostedcuster is ready and Completed
 func IsReadyHostedCluster(hostedCluster hyperv1beta1.HostedCluster) bool {
 	ready := false
-	progress := false
+
 	for i := range hostedCluster.Status.Conditions {
 		c := hostedCluster.Status.Conditions[i]
 
@@ -93,16 +93,19 @@ func IsReadyHostedCluster(hostedCluster hyperv1beta1.HostedCluster) bool {
 		}
 	}
 
-	if hostedCluster.Status.Version != nil {
-		for j := range hostedCluster.Status.Version.History {
-			history := hostedCluster.Status.Version.History[j]
-			if history.State == HostedClusterVersionCompletedStatus {
-				progress = true
+	/*
+		progress := false
+		if hostedCluster.Status.Version != nil {
+			for j := range hostedCluster.Status.Version.History {
+				history := hostedCluster.Status.Version.History[j]
+				if history.State == HostedClusterVersionCompletedStatus {
+					progress = true
+				}
 			}
-		}
-	}
+		}*/
 
-	if ready && progress {
+	if ready {
+		//if ready && progress {
 		return true
 	}
 	return false

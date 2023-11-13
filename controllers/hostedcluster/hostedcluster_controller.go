@@ -20,6 +20,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -28,9 +29,11 @@ import (
 
 	"github.com/openshift/hypershift-logging-operator/api/v1alpha1"
 	"github.com/openshift/hypershift-logging-operator/controllers/hypershiftlogforwarder"
+	hypershiftsa "github.com/openshift/hypershift-logging-operator/controllers/serviceaccount"
 	constants "github.com/openshift/hypershift-logging-operator/pkg/constants"
 	"github.com/openshift/hypershift-logging-operator/pkg/hostedcluster"
 	hyperv1beta1 "github.com/openshift/hypershift/api/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 )
 
@@ -90,6 +93,12 @@ func (r *HostedClusterReconciler) Reconcile(
 				return ctrl.Result{}, err
 			}
 
+			clientset, err := kubernetes.NewForConfig(restConfig)
+			if err != nil {
+				log.Error(err, "getting guest cluster clientset")
+				return ctrl.Result{}, err
+			}
+
 			hsCluster, err := cluster.New(restConfig)
 			if err != nil {
 				log.Error(err, "creating guest cluster kubeconfig")
@@ -112,6 +121,14 @@ func (r *HostedClusterReconciler) Reconcile(
 			hostedClusters[req.NamespacedName.Name] = newHostedCluster
 			rhc := hypershiftlogforwarder.HyperShiftLogForwarderReconciler{
 				Client:       hsCluster.GetClient(),
+				Scheme:       clusterScheme,
+				MCClient:     r.Client,
+				HCPNamespace: hcpNamespace,
+			}
+
+			rHostedClusterServiceAccount := hypershiftsa.ServiceAccountReconciler{
+				Client:       hsCluster.GetClient(),
+				ClientSet:    clientset,
 				Scheme:       clusterScheme,
 				MCClient:     r.Client,
 				HCPNamespace: hcpNamespace,
@@ -146,6 +163,21 @@ func (r *HostedClusterReconciler) Reconcile(
 					For(&v1alpha1.HyperShiftLogForwarder{}).
 					WithEventFilter(eventPredicates()).
 					Complete(&rhc)
+
+				if err != nil {
+					r.log.Error(err, "problem adding hypershift log forwarder controller to sub manager", "Name", hostedCluster.Name)
+				}
+
+				// Add hosted cluster service account minter to sub manager
+				controllerName := fmt.Sprintf("service_account_%s", hostedCluster.Name)
+				err = ctrl.NewControllerManagedBy(mgrHostedCluster).
+					Named(controllerName).
+					For(&corev1.ServiceAccount{}).
+					Complete(&rHostedClusterServiceAccount)
+
+				if err != nil {
+					r.log.Error(err, "problem adding secret controller to sub manager", "Name", hostedCluster.Name)
+				}
 
 				r.log.Info("starting HostedCluster manager", "Name", hostedCluster.Name)
 				if err := mgrHostedCluster.Start(ctx); err != nil {
