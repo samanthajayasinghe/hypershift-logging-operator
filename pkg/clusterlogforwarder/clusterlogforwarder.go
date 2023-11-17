@@ -23,6 +23,11 @@ var (
 	}
 )
 
+type ClusterLogForwarderBuilder struct {
+	Clf *loggingv1.ClusterLogForwarder
+	Hlf *v1alpha1.HyperShiftLogForwarder
+}
+
 // BuildInputsFromTemplate builds the input array from the template
 func BuildInputsFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 	clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
@@ -80,51 +85,47 @@ func BuildFiltersFromTemplate(template *v1alpha1.ClusterLogForwarderTemplate,
 }
 
 // BuildInputsFromHLF builds the CLF inputs from the HLF
-func BuildInputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
+func (b *ClusterLogForwarderBuilder) BuildInputsFromHLF() *ClusterLogForwarderBuilder {
 
-	if len(clf.Spec.Inputs) < 1 {
-		clf.Spec.Inputs = append(clf.Spec.Inputs, InputHTTPServerSpec)
+	if len(b.Clf.Spec.Inputs) < 1 {
+		b.Clf.Spec.Inputs = append(b.Clf.Spec.Inputs, InputHTTPServerSpec)
 	}
 
-	//if len(hlf.Spec.Inputs) > 0 {
-	//	for _, input := range hlf.Spec.Inputs {
-	//		if !strings.Contains(input.Name, constants.CustomerManagedRuleNamePrefix) {
-	//			input.Name = constants.CustomerManagedRuleNamePrefix + "-" + input.Name
-	//		}
-	//		clf.Spec.Inputs = append(clf.Spec.Inputs, input)
-	//	}
-	//}
-	return clf
+	return b
 }
 
 // BuildOutputsFromHLF builds the CLF outputs from the HLF
-func BuildOutputsFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
-	if len(hlf.Spec.Outputs) > 0 {
-		for _, output := range hlf.Spec.Outputs {
-			clf.Spec.Outputs = append(clf.Spec.Outputs, output)
+func (b *ClusterLogForwarderBuilder) BuildOutputsFromHLF() *ClusterLogForwarderBuilder {
+	if len(b.Hlf.Spec.Outputs) > 0 {
+		for _, output := range b.Hlf.Spec.Outputs {
+			b.Clf.Spec.Outputs = append(b.Clf.Spec.Outputs, output)
 		}
 	}
 
-	return clf
+	return b
 }
 
 // BuildPipelinesFromHLF builds the CLF pipelines from the HLF
-func BuildPipelinesFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
-	if len(hlf.Spec.Pipelines) > 0 {
-		for _, ppl := range hlf.Spec.Pipelines {
-			clf.Spec.Pipelines = append(clf.Spec.Pipelines, ppl)
+func (b *ClusterLogForwarderBuilder) BuildPipelinesFromHLF(labels map[string]string) *ClusterLogForwarderBuilder {
+	if len(b.Hlf.Spec.Pipelines) > 0 {
+		for index, ppl := range b.Hlf.Spec.Pipelines {
+			b.Clf.Spec.Pipelines = append(b.Clf.Spec.Pipelines, ppl)
+			// Add labels to pipeline
+			if len(labels) > 0 {
+				b.Clf.Spec.Pipelines[index].Labels = labels
+			}
 		}
 	}
 
-	return clf
+	return b
 }
 
 // BuildFiltersFromHLF builds the CLF filters from the HLF
-func BuildFiltersFromHLF(hlf *v1alpha1.HyperShiftLogForwarder, clf *loggingv1.ClusterLogForwarder) *loggingv1.ClusterLogForwarder {
-	if len(hlf.Spec.Filters) > 0 {
-		for _, f := range hlf.Spec.Filters {
-			clf.Spec.Filters = append(clf.Spec.Filters, f)
+func (b *ClusterLogForwarderBuilder) BuildFiltersFromHLF() *ClusterLogForwarderBuilder {
+	if len(b.Hlf.Spec.Filters) > 0 {
+		for _, f := range b.Hlf.Spec.Filters {
+			b.Clf.Spec.Filters = append(b.Clf.Spec.Filters, f)
 		}
 	}
-	return clf
+	return b
 }

@@ -175,12 +175,20 @@ func (r *HyperShiftLogForwarderReconciler) buildClusterLogForwarder(instance *v1
 	clf.Name = instance.Name
 	clf.Namespace = r.HCPNamespace
 
-	clf = clusterlogforwarder.BuildInputsFromHLF(instance, clf)
-	clf = clusterlogforwarder.BuildOutputsFromHLF(instance, clf)
-	clf = clusterlogforwarder.BuildPipelinesFromHLF(instance, clf)
-	clf = clusterlogforwarder.BuildFiltersFromHLF(instance, clf)
+	clfBuilder := clusterlogforwarder.ClusterLogForwarderBuilder{
+		Clf: clf,
+		Hlf: instance,
+	}
+	labels := map[string]string{
+		"hcp_namespace": r.HCPNamespace,
+	}
 
-	return clf
+	clfBuilder.BuildInputsFromHLF().
+		BuildOutputsFromHLF().
+		BuildPipelinesFromHLF(labels).
+		BuildFiltersFromHLF()
+
+	return clfBuilder.Clf
 }
 
 // updateOrCreateCLF creates or update clf in HCP namespace
