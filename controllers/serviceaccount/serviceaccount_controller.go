@@ -16,10 +16,10 @@ package serviceaccount
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/openshift/hypershift-logging-operator/pkg/constants"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +27,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/openshift/hypershift-logging-operator/pkg/constants"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -47,6 +49,17 @@ func (r *ServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	r.log = ctrllog.FromContext(ctx).WithName("hostedcluster-service-account-controller")
 	r.log.V(1).Info("start reconcile", "Name", req.NamespacedName)
+
+	enabled, err := r.checkAuditLogEnabled(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// If the audit log is not enabled, we skip the reconcile and retry in 10 minutes
+	if !enabled {
+		return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
+	}
+
 	serviceAccount := &corev1.ServiceAccount{}
 
 	if r.HCPNamespace == "" {
@@ -57,7 +70,7 @@ func (r *ServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Getting the hosted cluster service account
 	apiContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	err := r.Get(
+	err = r.Get(
 		apiContext,
 		types.NamespacedName{Name: constants.MintServiceAccountName, Namespace: constants.MintServiceAccountNamespace},
 		serviceAccount,
@@ -133,6 +146,29 @@ func (r *ServiceAccountReconciler) mintServiceAccountToken(
 	}
 
 	return token.Status.Token, nil
+}
+
+// checkAuditLogEnabled reads the secret/cloudwatch-credentials, if it contains the role arn value format
+// we think the audit log forwarder is enabled
+func (r *ServiceAccountReconciler) checkAuditLogEnabled(ctx context.Context) (bool, error) {
+
+	sec := &corev1.Secret{}
+
+	err := r.MCClient.Get(ctx, types.NamespacedName{Name: constants.CloudWatchSecretName, Namespace: r.HCPNamespace}, sec)
+	if errors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	credStr := string(sec.Data["credentials"])
+
+	if strings.Contains(credStr, "arn:aws:iam::") {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (r *ServiceAccountReconciler) updateOrCreateCloudWatchSecret(
