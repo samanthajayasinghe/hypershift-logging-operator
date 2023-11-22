@@ -148,12 +148,18 @@ func (r *ClusterLogForwarderTemplateReconciler) buildClusterLogForwarder(templat
 	clf.Name = template.Name
 	clf.Namespace = ns
 
-	clf = clusterlogforwarder.BuildInputsFromTemplate(template, clf)
-	clf = clusterlogforwarder.BuildOutputsFromTemplate(template, clf)
-	clf = clusterlogforwarder.BuildPipelinesFromTemplate(template, clf)
-	clf = clusterlogforwarder.BuildFiltersFromTemplate(template, clf)
+	clfBuilder := clusterlogforwarder.ClusterLogForwarderBuilder{
+		Clf:  clf,
+		Clft: template,
+	}
 
-	return clf
+	clfBuilder.BuildInputsFromTemplate().
+		BuildOutputsFromTemplate().
+		BuildPipelinesFromTemplate().
+		BuildFiltersFromTemplate().
+		BuildServiceAccount()
+
+	return clfBuilder.Clf
 }
 
 // SetupWithManager sets up the controller with the Manager.
