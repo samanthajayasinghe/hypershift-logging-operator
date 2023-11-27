@@ -186,7 +186,8 @@ func (r *HyperShiftLogForwarderReconciler) buildClusterLogForwarder(instance *v1
 	clfBuilder.BuildInputsFromHLF().
 		BuildOutputsFromHLF().
 		BuildPipelinesFromHLF(labels).
-		BuildFiltersFromHLF()
+		BuildFiltersFromHLF().
+		BuildServiceAccount()
 
 	return clfBuilder.Clf
 }
