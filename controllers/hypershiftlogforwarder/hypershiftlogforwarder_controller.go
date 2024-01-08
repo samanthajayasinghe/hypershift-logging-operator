@@ -56,7 +56,6 @@ var (
 		Reason:  "NonSupportedFilterType",
 		Message: "The filter supports only the kubeAPIAudit type",
 	}
-	hostedClusters = map[string]HostedCluster{}
 )
 
 // HostedCluster keeps hosted cluster info
@@ -264,7 +263,7 @@ func (r *HyperShiftLogForwarderReconciler) ValidatePipelines(hlf *v1alpha1.Hyper
 func (r *HyperShiftLogForwarderReconciler) ValidateFilters(hlf *v1alpha1.HyperShiftLogForwarder) error {
 	for _, f := range hlf.Spec.Filters {
 		if f.Type != "kubeAPIAudit" {
-			r.log.V(3).Info(fmt.Sprintf("support only kubeAPIAudit type of filter for HyperShiftLogForwarder"))
+			r.log.V(3).Info("support only kubeAPIAudit type of filter for HyperShiftLogForwarder")
 			hlf.Status.Conditions.SetCondition(nonSupportFilterTypeCondition)
 			if err := r.Status().Update(context.TODO(), hlf); err != nil {
 				return err

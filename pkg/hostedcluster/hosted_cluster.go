@@ -104,11 +104,7 @@ func IsReadyHostedCluster(hostedCluster hyperv1beta1.HostedCluster) bool {
 			}
 		}*/
 
-	if ready {
-		//if ready && progress {
-		return true
-	}
-	return false
+	return ready
 }
 
 // BuildGuestKubeConfig builds the kubeconfig for client to access the hosted cluster from the secrets in HCP namespace
@@ -156,6 +152,10 @@ func BuildGuestKubeConfig(
 	}
 
 	kubeConfigYaml, err := clientcmd.Write(*kubeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert kubeconfig to yaml: %w", err)
+	}
+
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeConfigYaml)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize kubeconfig: %w", err)
