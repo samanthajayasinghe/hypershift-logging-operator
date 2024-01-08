@@ -45,9 +45,7 @@ func (b *ClusterLogForwarderBuilder) BuildInputsFromTemplate() *ClusterLogForwar
 func (b *ClusterLogForwarderBuilder) BuildOutputsFromTemplate() *ClusterLogForwarderBuilder {
 
 	if len(b.Clft.Spec.Template.Outputs) > 0 {
-		for _, output := range b.Clft.Spec.Template.Outputs {
-			b.Clf.Spec.Outputs = append(b.Clf.Spec.Outputs, output)
-		}
+		b.Clf.Spec.Outputs = append(b.Clf.Spec.Outputs, b.Clft.Spec.Template.Outputs...)
 	}
 
 	return b
@@ -57,9 +55,7 @@ func (b *ClusterLogForwarderBuilder) BuildOutputsFromTemplate() *ClusterLogForwa
 func (b *ClusterLogForwarderBuilder) BuildPipelinesFromTemplate() *ClusterLogForwarderBuilder {
 
 	if len(b.Clft.Spec.Template.Pipelines) > 0 {
-		for _, ppl := range b.Clft.Spec.Template.Pipelines {
-			b.Clf.Spec.Pipelines = append(b.Clf.Spec.Pipelines, ppl)
-		}
+		b.Clf.Spec.Pipelines = append(b.Clf.Spec.Pipelines, b.Clft.Spec.Template.Pipelines...)
 	}
 
 	return b
@@ -69,9 +65,7 @@ func (b *ClusterLogForwarderBuilder) BuildPipelinesFromTemplate() *ClusterLogFor
 func (b *ClusterLogForwarderBuilder) BuildFiltersFromTemplate() *ClusterLogForwarderBuilder {
 
 	if len(b.Clft.Spec.Template.Filters) > 0 {
-		for _, f := range b.Clft.Spec.Template.Filters {
-			b.Clf.Spec.Filters = append(b.Clf.Spec.Filters, f)
-		}
+		b.Clf.Spec.Filters = append(b.Clf.Spec.Filters, b.Clft.Spec.Template.Filters...)
 	}
 
 	return b
@@ -99,9 +93,7 @@ func (b *ClusterLogForwarderBuilder) BuildInputsFromHLF() *ClusterLogForwarderBu
 // BuildOutputsFromHLF builds the CLF outputs from the HLF
 func (b *ClusterLogForwarderBuilder) BuildOutputsFromHLF() *ClusterLogForwarderBuilder {
 	if len(b.Hlf.Spec.Outputs) > 0 {
-		for _, output := range b.Hlf.Spec.Outputs {
-			b.Clf.Spec.Outputs = append(b.Clf.Spec.Outputs, output)
-		}
+		b.Clf.Spec.Outputs = append(b.Clf.Spec.Outputs, b.Hlf.Spec.Outputs...)
 	}
 
 	return b
@@ -125,9 +117,7 @@ func (b *ClusterLogForwarderBuilder) BuildPipelinesFromHLF(labels map[string]str
 // BuildFiltersFromHLF builds the CLF filters from the HLF
 func (b *ClusterLogForwarderBuilder) BuildFiltersFromHLF() *ClusterLogForwarderBuilder {
 	if len(b.Hlf.Spec.Filters) > 0 {
-		for _, f := range b.Hlf.Spec.Filters {
-			b.Clf.Spec.Filters = append(b.Clf.Spec.Filters, f)
-		}
+		b.Clf.Spec.Filters = append(b.Clf.Spec.Filters, b.Hlf.Spec.Filters...)
 	}
 	return b
 }

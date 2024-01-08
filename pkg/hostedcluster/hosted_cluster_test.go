@@ -34,7 +34,6 @@ import (
 )
 
 func TestGetHostedControlPlanes(t *testing.T) {
-	const namespace = "test-ns"
 	var mockHcpList = []client.Object{
 		&hyperv1beta1.HostedControlPlane{
 			ObjectMeta: metav1.ObjectMeta{

@@ -38,7 +38,6 @@ import (
 )
 
 var (
-	clusterScheme  = runtime.NewScheme()
 	hostedClusters = map[string]hypershiftlogforwarder.HostedCluster{}
 )
 
