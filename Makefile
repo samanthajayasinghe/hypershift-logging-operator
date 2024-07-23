@@ -47,17 +47,14 @@ build-package:
 		$(CONTAINER_ENGINE) build -t $(PKO_IMG):$(PKO_IMAGETAG) -f $(join $(CURDIR),/hack/hypershift/package/hypershift-logging-operator.Containerfile) . && \
 		$(CONTAINER_ENGINE) tag $(PKO_IMG):$(PKO_IMAGETAG) $(PKO_IMG):latest
 
-.PHONY: skopeo-push
-skopeo-push-package:
+.PHONY: podman-push
+podman-push-package:
 	@if [[ -z $$QUAY_USER || -z $$QUAY_TOKEN ]]; then \
 		echo "You must set QUAY_USER and QUAY_TOKEN environment variables" ;\
 		echo "ex: make QUAY_USER=value QUAY_TOKEN=value $@" ;\
 		exit 1 ;\
 	fi
 	# QUAY_USER and QUAY_TOKEN are supplied as env vars
-	skopeo copy --dest-creds "${QUAY_USER}:${QUAY_TOKEN}" \
-		"docker-daemon:${PKO_IMG}:${PKO_IMAGETAG}" \
-		"docker://${PKO_IMG}:latest"
-	skopeo copy --dest-creds "${QUAY_USER}:${QUAY_TOKEN}" \
-		"docker-daemon:${PKO_IMG}:${PKO_IMAGETAG}" \
-		"docker://${PKO_IMG}:${PKO_IMAGETAG}"
+	podman login -u="${QUAY_USER}" -p="${QUAY_TOKEN}" quay.io
+	podman push $(PKO_IMG):$(PKO_IMAGETAG)
+	podman push $(PKO_IMG):latest
