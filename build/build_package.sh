@@ -90,4 +90,4 @@ if image_exists_in_repo "$IMAGE_URI"; then
 fi
 
 # build the image and push the image
-make -C $(dirname $0)/../ build-package skopeo-push-package
+make -C $(dirname $0)/../ build-package podman-push-package
